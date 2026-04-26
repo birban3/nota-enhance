@@ -2,6 +2,59 @@
 
 import { useState, useRef, useCallback } from "react";
 
+/**
+ * Uploads `file` and returns the transcription text.
+ *
+ * Strategy:
+ *   1. Try Vercel Blob direct upload — bypasses Vercel's 4.5 MB body cap.
+ *      Only works when `BLOB_READ_WRITE_TOKEN` is configured server-side
+ *      (production). The `/api/blob/upload-token` endpoint returns 503 if
+ *      not — that's our signal to fall back.
+ *   2. Fall back to direct FormData POST to `/api/transcribe`. This works
+ *      in local dev (no body cap) and for tiny files in prod.
+ */
+async function uploadAndTranscribe(file: File): Promise<string> {
+  // ── Path A: Blob client upload, then handoff URL to /api/transcribe ──
+  try {
+    const { upload } = await import("@vercel/blob/client");
+    const newBlob = await upload(file.name, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob/upload-token",
+      contentType: file.type || "audio/webm",
+    });
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: newBlob.url,
+        filename: file.name,
+        contentType: file.type || "audio/webm",
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Errore trascrizione");
+    return ((data.text as string) || "").trim();
+  } catch (blobErr) {
+    // If the Blob path failed because the server returned 503 (Blob not
+    // configured) or any network-level fall-through, try direct upload.
+    const errMsg = blobErr instanceof Error ? blobErr.message : String(blobErr);
+    const looksLikeBlobNotConfigured = /503|non configurato|fallback/i.test(errMsg);
+    if (!looksLikeBlobNotConfigured) {
+      // Real Blob error (auth, validation, etc.) — surface it instead of silently
+      // hammering the small-body endpoint with a multi-MB upload that will 413.
+      throw blobErr;
+    }
+  }
+
+  // ── Path B: classic FormData direct upload (local dev / no Blob) ──
+  const formData = new FormData();
+  formData.append("audio", file);
+  const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Errore trascrizione");
+  return ((data.text as string) || "").trim();
+}
+
 interface UseAudioRecorderReturn {
   isRecording: boolean;
   recordTime: number;
@@ -56,14 +109,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setIsTranscribingRecording(true);
     try {
       const file = new File([blob], filename, { type: blob.type || "audio/webm" });
-      const formData = new FormData();
-      formData.append("audio", file);
-      const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Errore trascrizione");
-      const newText = (data.text as string)?.trim() ?? "";
-      if (newText) {
-        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + newText : newText));
+      const text = await uploadAndTranscribe(file);
+      if (text) {
+        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + text : text));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore trascrizione";
@@ -157,20 +205,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setIsTranscribingFile(true);
 
     try {
-      const formData = new FormData();
-      formData.append("audio", file);
-
-      const res = await fetch("/api/transcribe", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Errore trascrizione");
-
-      const newText = (data.text as string)?.trim() ?? "";
-      if (newText) {
-        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + newText : newText));
+      const text = await uploadAndTranscribe(file);
+      if (text) {
+        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + text : text));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore trascrizione";

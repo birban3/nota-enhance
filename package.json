@@ -25,6 +25,7 @@
     "@tiptap/react": "^2.11.0",
     "@tiptap/starter-kit": "^2.11.0",
     "@types/bcryptjs": "^2.4.6",
+    "@vercel/blob": "^2.3.3",
     "bcryptjs": "^3.0.3",
     "framer-motion": "^12.38.0",
     "html2pdf.js": "^0.14.0",

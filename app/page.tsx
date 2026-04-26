@@ -91,6 +91,14 @@ function mdToHtml(md: string): string {
     return t;
   };
 
+  // Lines that are just an image or just a file-chip should NOT be wrapped in
+  // a <p> — Tiptap treats <image> and <fileAttachment> as block nodes, and
+  // wrapping them in a paragraph stacks paragraph-margin on top of the
+  // node-margin (made the gap between two consecutive images grow on every
+  // refresh). Detect "pure block" lines and emit them raw.
+  const PURE_IMG_RE = /^!\[[^\]]*\]\([^)]+\)$/;
+  const PURE_FILE_RE = /^\[📎 [^\]]*\]\([^)]+\)$/;
+
   for (const line of lines) {
     const t = line.trim();
     if (/^[-*] /.test(t)) {
@@ -102,6 +110,7 @@ function mdToHtml(md: string): string {
       else if (t.startsWith("### ")) html += `<h3>${inline(t.slice(4))}</h3>`;
       else if (t.startsWith("## ")) html += `<h2>${inline(t.slice(3))}</h2>`;
       else if (t.startsWith("# ")) html += `<h1>${inline(t.slice(2))}</h1>`;
+      else if (PURE_IMG_RE.test(t) || PURE_FILE_RE.test(t)) html += inline(t);
       else if (t === "") html += `<p></p>`;
       else html += `<p>${inline(t)}</p>`;
     }
