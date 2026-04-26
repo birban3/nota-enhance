@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env.local
+.env*.local
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local auth state (generated on first registration in dev)
+.credentials.json
+
+# macOS
+.DS_Store
+
+# Vercel
+.vercel

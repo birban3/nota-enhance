@@ -1,0 +1,408 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+/* ── Theme tokens ── */
+:root, [data-theme="dark"] {
+  --surface-0: #0a0a0b;
+  --surface-1: #0d0d0e;
+  --surface-2: #111113;
+  --surface-3: #1a1a1e;
+  --surface-4: #262626;
+  --text-primary: #e8e6e3;
+  --text-secondary: #a3a3a3;
+  --text-muted: #525252;
+  --text-faint: #333333;
+  --text-emphasis: #fafaf9;
+  --scrollbar-thumb: #2a2a2e;
+  --scrollbar-thumb-hover: #3a3a3e;
+  --selection-bg: rgba(168, 67, 9, 0.25);
+
+  /* Apple-style materials — translucent layers with vibrancy */
+  --material-thin: rgba(10, 10, 11, 0.55);
+  --material-regular: rgba(13, 13, 14, 0.75);
+  --material-thick: rgba(17, 17, 19, 0.92);
+  --material-border: rgba(255, 255, 255, 0.06);
+  --material-border-strong: rgba(255, 255, 255, 0.10);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.30);
+  --shadow-float: 0 4px 8px rgba(0, 0, 0, 0.25), 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="light"] {
+  --surface-0: #fafaf9;
+  --surface-1: #ffffff;
+  --surface-2: #f5f5f4;
+  --surface-3: #e7e5e4;
+  --surface-4: #d6d3d1;
+  --text-primary: #1c1917;
+  --text-secondary: #44403c;
+  --text-muted: #78716c;
+  --text-faint: #a8a29e;
+  --text-emphasis: #0c0a09;
+  --scrollbar-thumb: #d6d3d1;
+  --scrollbar-thumb-hover: #a8a29e;
+  --selection-bg: rgba(168, 67, 9, 0.22);
+
+  --material-thin: rgba(250, 250, 249, 0.60);
+  --material-regular: rgba(255, 255, 255, 0.78);
+  --material-thick: rgba(255, 255, 255, 0.94);
+  --material-border: rgba(0, 0, 0, 0.06);
+  --material-border-strong: rgba(0, 0, 0, 0.10);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 4px 8px rgba(0, 0, 0, 0.06), 0 24px 48px rgba(0, 0, 0, 0.12);
+}
+
+html, body {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── Default UI zoom ──
+   Match the comfort level the user gets after pressing ⌘+ once in Safari
+   (≈115%). Using `zoom` rather than scaling rem because the codebase has many
+   absolute pixel sizes (h-8, [12px] etc.) that wouldn't pick up an rem bump.
+   Safari/Chrome native; Firefox 126+ also supports it. The browser keeps its
+   own zoom additive on top, so the user can still ⌘+/⌘– freely. */
+html {
+  zoom: 1.15;
+}
+@supports not (zoom: 1) {
+  /* Fallback for engines without `zoom` — scale the root font-size. Hits the
+     rem-based sizes only, but that's the best we can do without zoom. */
+  html { font-size: 18.4px; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* ── Material classes (Apple HIG-inspired) ── */
+.material-thin {
+  background: var(--material-thin);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-color: var(--material-border);
+}
+.material-regular {
+  background: var(--material-regular);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-color: var(--material-border);
+}
+.material-thick {
+  background: var(--material-thick);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border-color: var(--material-border-strong);
+}
+
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.shadow-float { box-shadow: var(--shadow-float); }
+
+/* Springy ease used throughout */
+.ease-spring { transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+.ease-out-quint { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ── Tiptap Editor ── */
+.tiptap-editor {
+  @apply outline-none min-h-full text-[15px] leading-snug text-text-primary font-sans;
+}
+
+.tiptap-editor p { @apply my-1; }
+.tiptap-editor h1 { @apply text-2xl font-bold mt-6 mb-3 text-text-emphasis tracking-tight; }
+.tiptap-editor h2 { @apply text-lg font-semibold mt-5 mb-2 text-text-emphasis tracking-tight; }
+.tiptap-editor h3 { @apply text-base font-semibold mt-4 mb-1.5 text-text-primary; }
+.tiptap-editor ul { @apply pl-5 my-2 list-disc; }
+.tiptap-editor li { @apply mb-1 leading-snug text-text-primary; }
+.tiptap-editor li::marker { @apply text-accent; }
+.tiptap-editor strong { @apply font-semibold text-text-emphasis; }
+.tiptap-editor *::selection { background: var(--selection-bg); }
+
+.tiptap-editor blockquote {
+  @apply border-l-4 border-accent/60 pl-4 py-1.5 my-3 text-[13px] text-text-secondary italic bg-surface-1 rounded-r-lg;
+}
+.tiptap-editor blockquote p {
+  @apply my-0 leading-relaxed;
+}
+
+.tiptap-editor u { text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+
+/* Hermès-orange highlighter — colora il TESTO in arancione invece dello sfondo,
+   così resta sempre leggibile su qualunque tema (l'evidenziatore "tinge", non "copre"). */
+.tiptap-editor mark, .tiptap-editor .hl-hermes {
+  background: transparent;
+  color: #E5651A;
+  font-weight: 600;
+  padding: 0;
+  border-radius: 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Inline image — supporta toggle small/large via attributo data-size sul nodo.
+   Click sull'immagine alterna fra le due (vedi handleClickOn nell'editor). */
+.tiptap-editor img.tiptap-img,
+.tiptap-editor img {
+  @apply rounded-lg my-3 max-w-full h-auto shadow-soft;
+  display: block;
+  cursor: zoom-in;
+  transition: max-width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tiptap-editor img[data-size="small"] {
+  max-width: 220px;
+  cursor: zoom-in;
+}
+.tiptap-editor img[data-size="large"] {
+  max-width: 100%;
+  cursor: zoom-out;
+}
+
+/* File attachment chip */
+.tiptap-editor .file-attachment { margin: 12px 0; }
+.tiptap-editor .file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--material-border);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  max-width: 100%;
+}
+.tiptap-editor .file-chip:hover {
+  background: var(--surface-3);
+  border-color: var(--material-border-strong);
+}
+.tiptap-editor .file-icon { font-size: 18px; line-height: 1; }
+.tiptap-editor .file-name { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tiptap-editor .file-mime {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  background: var(--surface-3);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tiptap-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply text-text-faint float-left h-0 pointer-events-none;
+}
+
+/* Hide vertical scrollbar but keep scroll functionality */
+.scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hidden::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* Vertical resize divider */
+.split-handle {
+  position: relative;
+  flex: 0 0 1px;
+  background: var(--material-border);
+  cursor: col-resize;
+  transition: background-color 0.15s ease;
+}
+.split-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0 -8px; /* wider hit area than visible line */
+}
+.split-handle:hover, .split-handle.dragging {
+  background: var(--accent, #A84309);
+}
+
+/* Title input */
+.title-input {
+  @apply w-full bg-transparent border-none outline-none text-[28px] font-bold tracking-tight text-text-emphasis placeholder:text-text-faint;
+  letter-spacing: -0.02em;
+}
+
+/* Pulse */
+.live-dot {
+  @apply w-1.5 h-1.5 rounded-full bg-rec;
+  animation: pulse-rec 1.6s ease-in-out infinite;
+}
+
+/* Press state — Apple-style soft press */
+.press {
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 0.15s ease,
+              box-shadow 0.2s ease,
+              opacity 0.15s ease,
+              filter 0.15s ease;
+}
+.press:active:not(:disabled) { transform: scale(0.97); }
+
+/* ── Premium action buttons ──
+   Plaud + Apple HIG aesthetic: flat solid fill, hairline inner highlight on top,
+   subtle hairline shadow at the bottom edge, and a soft same-hue ambient glow.
+   No multi-stop gradients, no thick borders, no plastic bevel. */
+/* Rest tone is intentionally a touch lighter than hover, per design feedback —
+   keeps the buttons feeling premium and "lit", with hover adding a small extra
+   nudge in the same direction. */
+.btn-premium-accent {
+  background-color: #C24E0C;
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10),
+    0 1px 0 rgba(0, 0, 0, 0.04),
+    0 4px 14px -4px rgba(194, 78, 12, 0.45);
+}
+.btn-premium-accent:hover:not(:disabled) {
+  background-color: #CE540D;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10),
+    0 1px 0 rgba(0, 0, 0, 0.04),
+    0 6px 18px -4px rgba(194, 78, 12, 0.55);
+}
+.btn-premium-accent:active:not(:disabled) {
+  background-color: #A84309;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.18),
+    0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.btn-premium-rec {
+  background-color: #D04340;
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10),
+    0 1px 0 rgba(0, 0, 0, 0.04),
+    0 4px 14px -4px rgba(208, 67, 64, 0.45);
+}
+.btn-premium-rec:hover:not(:disabled) {
+  background-color: #DB4A47;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.10),
+    0 1px 0 rgba(0, 0, 0, 0.04),
+    0 6px 18px -4px rgba(208, 67, 64, 0.55);
+}
+.btn-premium-rec:active:not(:disabled) {
+  background-color: #B83330;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.20),
+    0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .btn-premium-accent {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+    0 1px 1px rgba(0, 0, 0, 0.06),
+    0 6px 16px -6px rgba(194, 78, 12, 0.40);
+}
+[data-theme="light"] .btn-premium-rec {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+    0 1px 1px rgba(0, 0, 0, 0.06),
+    0 6px 16px -6px rgba(208, 67, 64, 0.40);
+}
+
+/* ── Animations ── */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes pulse-rec {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-spin-fast { animation: spin 0.8s linear infinite; }
+.animate-pulse-rec { animation: pulse-rec 1.6s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-in-left { animation: slide-in-left 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+.animate-scale-in { animation: scale-in 0.18s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ── PDF export — wrappato dal print iframe per garantire formattazione fedele.
+   Replica la tipografia del Tiptap editor in nero su bianco, ottimizzato A4. */
+.pdf-export-root {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  color: #1c1917;
+  background: #ffffff;
+  padding: 32px 40px;
+  line-height: 1.5;
+  font-size: 13.5px;
+}
+.pdf-export-root h1 { font-size: 26px; font-weight: 700; margin: 0 0 18px; letter-spacing: -0.02em; }
+.pdf-export-root h2 { font-size: 18px; font-weight: 600; margin: 22px 0 8px; letter-spacing: -0.01em; }
+.pdf-export-root h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+.pdf-export-root p { margin: 6px 0; }
+.pdf-export-root ul { padding-left: 20px; margin: 8px 0; list-style: disc; }
+.pdf-export-root li { margin: 3px 0; }
+.pdf-export-root strong { font-weight: 600; color: #0c0a09; }
+.pdf-export-root u { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+.pdf-export-root mark, .pdf-export-root .hl-hermes {
+  background: transparent; color: #A84309; font-weight: 600;
+}
+.pdf-export-root blockquote {
+  border-left: 2px solid rgba(168, 67, 9, 0.45);
+  padding-left: 12px; margin: 8px 0; font-style: italic;
+  color: #44403c; font-size: 12.5px;
+}
+/* Le immagini nel PDF sono sempre stampate "piccole" — max 220px di larghezza,
+   centrate-sinistra come nel resto del flusso. Questo override vince anche se
+   l'attributo data-size="large" è presente sull'<img> (qualsiasi scelta
+   nell'editor è ininfluente in fase di stampa, per design). */
+.pdf-export-root img,
+.pdf-export-root img[data-size],
+.pdf-export-root img[data-size="large"],
+.pdf-export-root img[data-size="small"] {
+  max-width: 220px !important;
+  height: auto;
+  display: block;
+  margin: 10px 0;
+  border-radius: 6px;
+}
+.pdf-export-root .pdf-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #78716c;
+  margin-bottom: 18px;
+  letter-spacing: 0.04em;
+}
+.pdf-export-root .pdf-section-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #A84309;
+  margin: 28px 0 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  padding-bottom: 4px;
+}
+.pdf-export-root .file-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px;
+  font-size: 11.5px; color: #1c1917; text-decoration: none;
+}
+@media print {
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 18mm; }
+}
