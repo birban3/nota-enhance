@@ -21,16 +21,28 @@ export interface Credential {
 
 const KV_KEY = "nota-enhance:admin-credential";
 
+// Vercel KV (legacy) populated KV_REST_API_*. The marketplace replacement
+// (Upstash via Vercel) typically populates UPSTASH_REDIS_REST_*. Some
+// connections expose both. Accept either so we don't depend on the exact
+// integration shape.
+function kvCreds(): { url: string; token: string } | null {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
+  if (!url || !token) return null;
+  return { url: url.replace(/\/$/, ""), token };
+}
+
 function kvConfigured(): boolean {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+  return kvCreds() !== null;
 }
 
 // ── KV backend ──────────────────────────────────────────────────────────────
 async function kvGet(): Promise<Credential | null> {
-  const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(KV_KEY)}`;
+  const c = kvCreds()!;
+  const url = `${c.url}/get/${encodeURIComponent(KV_KEY)}`;
   const res = await fetch(url, {
     method: "GET",
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+    headers: { Authorization: `Bearer ${c.token}` },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -47,11 +59,12 @@ async function kvGet(): Promise<Credential | null> {
 }
 
 async function kvSet(cred: Credential): Promise<void> {
-  const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(KV_KEY)}`;
+  const c = kvCreds()!;
+  const url = `${c.url}/set/${encodeURIComponent(KV_KEY)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
+      Authorization: `Bearer ${c.token}`,
       "Content-Type": "application/json",
     },
     // Upstash REST `set` takes the raw value as the request body.
