@@ -38,15 +38,23 @@ export async function POST(req: NextRequest) {
       body,
       request: req,
       onBeforeGenerateToken: async () => ({
+        // Minimal, permissive config. Keep this VERY simple — extra options
+        // (validUntil, narrow content-type lists) have caused malformed
+        // tokens that Vercel's blob endpoint then rejects with a 400.
         allowedContentTypes: [
+          "audio/mpeg",
+          "audio/mp4",
+          "audio/m4a",
+          "audio/x-m4a",
+          "audio/wav",
+          "audio/x-wav",
+          "audio/webm",
+          "audio/ogg",
+          "audio/flac",
           "audio/*",
-          "application/octet-stream", // some browsers send this for .webm/.m4a
+          "application/octet-stream",
         ],
         addRandomSuffix: true,
-        maximumSizeInBytes: 100 * 1024 * 1024, // 100 MB cap (Groq itself caps at 25)
-        // Auto-delete the blob 1 hour from upload — we only need it during
-        // the transcription request, then it can go.
-        validUntil: Date.now() + 60 * 60 * 1000,
       }),
       onUploadCompleted: async () => {
         // Nothing to do — the client posts the URL to /api/transcribe next.
