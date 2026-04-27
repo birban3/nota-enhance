@@ -31,7 +31,12 @@ const TiptapEditor = dynamic(() => import("@/components/TiptapEditor"), {
 
 const STORAGE_KEY = "nota-enhance-archive";
 const ACTIVE_ID_KEY = "nota-enhance-active-id";
+const TOMBSTONES_KEY = "nota-enhance-tombstones";
 const DEFAULT_SPLIT = 0.5;
+// Debounce window between local changes and the next remote push. Long
+// enough that fast typing batches into one PUT, short enough that switching
+// devices feels live.
+const REMOTE_SYNC_DEBOUNCE_MS = 2500;
 
 /* ── Markdown → HTML (tolerant of inline tags emitted by Tiptap serializer) ──
    The Tiptap → markdown serializer emits raw <u>...</u> for underline and ==..==
@@ -181,6 +186,11 @@ export default function Home() {
   const [archive, setArchive] = useState<ArchivedNote[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  // Tombstones travel alongside the archive so that a delete made on one
+  // device propagates correctly to others. id → deletedAt epoch ms. The
+  // server merges these with its own tombstones; old entries (>30d) are
+  // garbage-collected server-side. Persisted in IDB for offline continuity.
+  const [tombstones, setTombstones] = useState<Record<string, number>>({});
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -259,6 +269,10 @@ export default function Home() {
             localStorage.removeItem(ACTIVE_ID_KEY);
           }
         }
+
+        const storedTombstones =
+          (await getVal<Record<string, number>>(TOMBSTONES_KEY)) || {};
+        setTombstones(storedTombstones);
 
         if (stored.length === 0) {
           const first = newEmptyNote();
@@ -422,6 +436,190 @@ export default function Home() {
     };
   }, [flushNow]);
 
+  // ════════════════ Cross-device sync ════════════════
+  //
+  // Pull-and-push against /api/notes/sync. The server merges per-note by
+  // updatedAt (last write wins) and applies tombstones, then echoes the
+  // merged state back. We adopt that state for everything EXCEPT the active
+  // note's editor content — overwriting what the user is currently typing
+  // would feel terrible, and the active note's local copy is by definition
+  // the freshest one anyway (it'll get pushed on the next sync).
+  //
+  // Triggers:
+  //   1. After hydrate completes — pulls in whatever other devices wrote
+  //      while this tab was closed, and uploads any local changes from
+  //      while this tab was offline.
+  //   2. Debounced after every snapshot — pushes local edits.
+  //   3. On `visibilitychange` to visible / window focus — pulls fresh
+  //      state. This is the only "incoming" path, so it doubles as
+  //      cross-tab sync (switching tabs fires visibilitychange).
+
+  const syncInFlightRef = useRef(false);
+  const initialSyncDoneRef = useRef(false);
+  const remoteSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const tombstonesRef = useRef(tombstones);
+  useEffect(() => { tombstonesRef.current = tombstones; }, [tombstones]);
+
+  const activeIdRef = useRef(activeId);
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+
+  const syncWithServer = useCallback(async (opts: { isInitial?: boolean } = {}) => {
+    if (syncInFlightRef.current) return;
+    if (!hydrated) return;
+    syncInFlightRef.current = true;
+    try {
+      // Build the freshest payload the same way persistNow does — by reading
+      // the editor markdown directly so in-flight typing is included.
+      const liveArchive = buildLatestArchive();
+      const body = {
+        archive: liveArchive,
+        tombstones: tombstonesRef.current,
+      };
+      const res = await fetch("/api/notes/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        // Soft-fail: leave local state alone, retry on next trigger. We do
+        // log to console so a real outage is visible during dev.
+        console.warn("notes/sync failed", res.status);
+        return;
+      }
+      const merged = (await res.json()) as {
+        archive: ArchivedNote[];
+        tombstones: Record<string, number>;
+      };
+
+      // Apply tombstones unconditionally (cheap, and they don't affect the
+      // visible UI on their own).
+      setTombstones(merged.tombstones || {});
+      void setVal(TOMBSTONES_KEY, merged.tombstones || {});
+
+      const mergedArchive = Array.isArray(merged.archive) ? merged.archive : [];
+      const curActive = activeIdRef.current;
+      // Use liveArchive (built from editor markdown above) — that's the
+      // freshest local copy of the active note, ahead of React state if
+      // the user is mid-keystroke.
+      const localActive = curActive
+        ? liveArchive.find((n) => n.id === curActive)
+        : null;
+      const remoteActive = curActive
+        ? mergedArchive.find((n) => n.id === curActive)
+        : null;
+
+      // Decision: replace the entire archive, but on regular (non-initial)
+      // syncs swap the active note's entry back to the local version so the
+      // user's in-flight typing survives. The active note will be pushed on
+      // the next sync, making it eventually consistent.
+      let nextArchive = mergedArchive;
+      if (!opts.isInitial && localActive && remoteActive) {
+        nextArchive = mergedArchive.map((n) =>
+          n.id === curActive ? localActive : n
+        );
+      }
+      // If the active note was deleted on another device (tombstoned, so it
+      // disappeared from the merged archive), pick a sibling or a new empty
+      // one so the editor doesn't keep pointing at a ghost.
+      if (curActive && !mergedArchive.some((n) => n.id === curActive)) {
+        if (mergedArchive.length === 0) {
+          const fresh = newEmptyNote();
+          nextArchive = [fresh];
+          setActiveId(fresh.id);
+          setInitialNotesHtml("");
+          setEnhancedHtml("");
+          setTranscript("");
+          setTitle("");
+          setTitleManual(false);
+          setSplitRatio(DEFAULT_SPLIT);
+          setAskMessages([]);
+          setNotesVersion((v) => v + 1);
+          setEnhancedVersion((v) => v + 1);
+        } else {
+          const next = mergedArchive[0];
+          setActiveId(next.id);
+          setInitialNotesHtml(mdToHtml(next.notes));
+          setEnhancedHtml(next.enhancedHtml || "");
+          setTranscript(next.transcript || "");
+          setTitle(next.title || "");
+          setTitleManual(!!next.manualTitle);
+          setSplitRatio(next.splitRatio ?? DEFAULT_SPLIT);
+          setAskMessages(next.askMessages || []);
+          setNotesVersion((v) => v + 1);
+          setEnhancedVersion((v) => v + 1);
+        }
+      } else if (opts.isInitial && remoteActive && localActive) {
+        // First sync of the session: if the server has a newer version of
+        // the active note (e.g. user edited it on another device since this
+        // tab last closed), reload the editors from it.
+        if (remoteActive.updatedAt > localActive.updatedAt) {
+          setInitialNotesHtml(mdToHtml(remoteActive.notes));
+          setEnhancedHtml(remoteActive.enhancedHtml || "");
+          setTranscript(remoteActive.transcript || "");
+          setTitle(remoteActive.title || "");
+          setTitleManual(!!remoteActive.manualTitle);
+          setSplitRatio(remoteActive.splitRatio ?? DEFAULT_SPLIT);
+          setAskMessages(remoteActive.askMessages || []);
+          setNotesVersion((v) => v + 1);
+          setEnhancedVersion((v) => v + 1);
+        }
+      }
+
+      setArchive(nextArchive);
+      void setVal(STORAGE_KEY, nextArchive);
+      // Refresh dirty-check ref so the next persistNow doesn't undo this.
+      try { lastPersistedRef.current = JSON.stringify(nextArchive); } catch {}
+    } catch (err) {
+      console.warn("notes/sync error", err);
+    } finally {
+      syncInFlightRef.current = false;
+    }
+    // setTranscript is exported by the audio hook and stable; the editor
+    // refs are mutable refs, also stable.
+  }, [hydrated, buildLatestArchive, setTranscript]);
+
+  const scheduleRemoteSync = useCallback(() => {
+    if (!hydrated) return;
+    if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current);
+    remoteSyncTimerRef.current = setTimeout(() => {
+      void syncWithServer();
+    }, REMOTE_SYNC_DEBOUNCE_MS);
+  }, [hydrated, syncWithServer]);
+
+  // 1. Initial sync after hydrate finishes.
+  useEffect(() => {
+    if (!hydrated || initialSyncDoneRef.current) return;
+    initialSyncDoneRef.current = true;
+    void syncWithServer({ isInitial: true });
+  }, [hydrated, syncWithServer]);
+
+  // 2. Schedule a debounced push every time the local archive or
+  //    tombstones change. The persistence layer above handles the local IDB
+  //    writes; this only kicks the network leg.
+  useEffect(() => {
+    if (!hydrated) return;
+    scheduleRemoteSync();
+  }, [archive, tombstones, title, titleManual, transcript, enhancedHtml, splitRatio, askMessages, hydrated, scheduleRemoteSync]);
+
+  // 3. Pull on tab visibility / window focus so cross-device updates are
+  //    near-real-time (switching to this tab on the other device triggers a
+  //    pull within ~one network round-trip).
+  useEffect(() => {
+    if (!hydrated) return;
+    const onFocus = () => { void syncWithServer(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void syncWithServer();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [hydrated, syncWithServer]);
+
   // ── Note operations ──
   const handleSelectNote = useCallback(
     (id: string) => {
@@ -461,6 +659,10 @@ export default function Home() {
 
   const handleDeleteNote = useCallback(
     (id: string) => {
+      // Record a tombstone so the delete propagates to other devices on the
+      // next sync round-trip (without a tombstone, an old still-present copy
+      // on another device would resurrect this note when it pushes).
+      setTombstones((prev) => ({ ...prev, [id]: Date.now() }));
       setArchive((prev) => {
         const remaining = prev.filter((n) => n.id !== id);
         if (id === activeId) {
