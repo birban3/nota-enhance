@@ -4,6 +4,14 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "nota/enhance",
   description: "AI-powered note enhancement with live audio transcription",
+  // iOS standalone web-app behaviour. Without this, "Add to Home Screen"
+  // opens the page inside Safari chrome instead of as a standalone app
+  // and the title under the icon falls back to the URL.
+  appleWebApp: {
+    capable: true,
+    title: "nota/enhance",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 // `viewport-fit=cover` lets us paint into the iOS safe-area; `maximumScale=1`

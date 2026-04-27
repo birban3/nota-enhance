@@ -39,9 +39,14 @@ export async function middleware(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
-// Skip Next internals & static assets — middleware would only slow them down.
+// Skip Next internals & static assets — middleware would only slow them
+// down, and would also break PWA install flows: Safari/Chrome fetch
+// /manifest.webmanifest, /icon.svg and /apple-icon during the "Add to
+// Home Screen / Dock" handshake, sometimes without our session cookie
+// (e.g. when the OS pre-caches them). Letting auth redirect those to
+// /login produces a broken-icon tile on the home screen.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon.svg|apple-icon).*)",
   ],
 };
