@@ -83,6 +83,25 @@ html {
   @media (max-width: 767px) { html { font-size: 16px; } }
 }
 
+/* ── Mobile viewport lock ──
+   On phones the app should fill exactly the visible viewport — no outer
+   page scroll, no pull-to-refresh dragging the UI around. All scrolling
+   stays inside the editor / transcript / sidebar panes. `100dvh` follows
+   iOS Safari's URL-bar collapse, unlike `100vh` which freezes at the
+   larger value and pushes the action bar offscreen.
+
+   We deliberately do NOT use `position: fixed` on body — that breaks the
+   iOS keyboard's auto-scroll-to-focused-field, which we need for the
+   note editors. `overflow: hidden` plus `overscroll-behavior: none` is
+   enough to kill the document scroll without breaking input focus. */
+@media (max-width: 767px) {
+  html, body {
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
 /* iOS safe-area helpers — used by the floating action bar and modal sheets so
    they don't sit under the home-indicator notch / dynamic island. */
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }

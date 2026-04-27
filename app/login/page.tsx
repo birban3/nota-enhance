@@ -66,7 +66,7 @@ export default function LoginPage() {
 
   if (mode === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-0 text-text-muted text-sm gap-2">
+      <div className="min-h-dvh flex items-center justify-center bg-surface-0 text-text-muted text-sm gap-2">
         <Loader2 size={14} className="animate-spin-fast" />
         Verifica sessione…
       </div>
@@ -76,7 +76,7 @@ export default function LoginPage() {
   const isRegister = mode === "register";
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-surface-0">
+    <div className="min-h-dvh flex items-center justify-center px-4 bg-surface-0">
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-6 text-[13px] text-text-muted">
           <span className="font-bold text-text-primary tracking-tight">nota</span>

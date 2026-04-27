@@ -772,14 +772,19 @@ export default function Home() {
   }, [isEnhancing, isRecording, handleEnhance, handleCreateNote, shortcuts]);
 
   if (!hydrated) {
-    return <div className="h-screen flex items-center justify-center text-text-muted text-sm">Caricamento…</div>;
+    return <div className="h-dvh flex items-center justify-center text-text-muted text-sm">Caricamento…</div>;
   }
 
   const activeNote = archive.find((n) => n.id === activeId);
   const recordingBusy = isRecording || isTranscribingRecording;
 
   return (
-    <div className="h-screen flex flex-col bg-surface-0 relative overflow-hidden">
+    // h-dvh (dynamic viewport) instead of h-screen so iOS Safari's
+    // collapsing URL bar doesn't push the action bar below the visible area.
+    // Combined with body { overflow: hidden } on mobile (globals.css), this
+    // means: zero outer scroll, only the editors and transcript drawer
+    // scroll internally.
+    <div className="h-dvh flex flex-col bg-surface-0 relative overflow-hidden">
 
       {/* ── Floating header (translucent) ── */}
       <header className="material-thin border-b shrink-0 z-30 pt-safe">
