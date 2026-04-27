@@ -1219,7 +1219,7 @@ export default function Home() {
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.7 }}
-        className="mx-4 md:mx-10 mt-3 md:mt-4 mb-2 md:mb-3 rounded-2xl material-regular border shadow-soft overflow-hidden shrink-0"
+        className="mx-4 md:mx-10 mt-3 md:mt-4 mb-1 md:mb-3 rounded-2xl material-regular border shadow-soft overflow-hidden shrink-0"
       >
         <button
           type="button"
@@ -1282,8 +1282,11 @@ export default function Home() {
       {/* ── Floating action bar (sleek, icon-forward) ──
           Mobile: edge-to-edge pill, labels hidden on the secondary buttons
           (Importa, PDF, Ask) so the primary Rec / Enhance keep their text;
-          tap targets stay ≥40px tall via h-10 on small. */}
-      <div className="px-3 md:px-10 pb-3 md:pb-4 mb-safe shrink-0">
+          tap targets stay ≥40px tall via h-10 on small.
+          Bottom spacing on mobile is *only* the safe-area inset — we want
+          the bar pinned right above the home-indicator with no extra gap.
+          Desktop keeps a comfortable pb-4. */}
+      <div className="px-3 md:px-10 pb-safe md:pb-4 shrink-0">
         <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
             onClick={handleImportClick}
