@@ -119,7 +119,7 @@ export function NotesSidebar({
 
           <motion.aside
             ref={asideRef}
-            className="fixed top-3 left-3 bottom-3 w-72 z-50 rounded-2xl material-thick shadow-float border flex flex-col overflow-hidden"
+            className="fixed top-2 bottom-2 left-2 right-2 md:top-3 md:left-3 md:bottom-3 md:right-auto md:w-72 z-50 rounded-2xl material-thick shadow-float border flex flex-col overflow-hidden pt-safe"
             initial={{ opacity: 0, x: -16, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -16, scale: 0.98 }}
@@ -128,17 +128,27 @@ export function NotesSidebar({
             onMouseLeave={handleMouseLeave}
           >
         {/* Header */}
-        <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+        <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-2">
           <span className="text-[13px] font-semibold text-text-primary tracking-tight">
             Le mie note
           </span>
-          <button
-            onClick={onCreate}
-            title="Nuova nota"
-            className="press w-8 h-8 flex items-center justify-center rounded-full bg-surface-3/50 hover:bg-accent text-text-secondary hover:text-white"
-          >
-            <Plus size={14} strokeWidth={2.5} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onCreate}
+              title="Nuova nota"
+              className="press w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-full bg-surface-3/50 hover:bg-accent text-text-secondary hover:text-white"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+            </button>
+            {/* Mobile-only close button — desktop closes via hover-out / Esc / backdrop. */}
+            <button
+              onClick={onClose}
+              title="Chiudi"
+              className="md:hidden press w-9 h-9 flex items-center justify-center rounded-full bg-surface-2/60 text-text-secondary hover:text-text-primary"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}

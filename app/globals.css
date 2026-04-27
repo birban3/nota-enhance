@@ -63,14 +63,37 @@ html, body {
    (≈115%). Using `zoom` rather than scaling rem because the codebase has many
    absolute pixel sizes (h-8, [12px] etc.) that wouldn't pick up an rem bump.
    Safari/Chrome native; Firefox 126+ also supports it. The browser keeps its
-   own zoom additive on top, so the user can still ⌘+/⌘– freely. */
+   own zoom additive on top, so the user can still ⌘+/⌘– freely.
+
+   On mobile (< 768px) we drop back to 1.0 — the desktop 1.15× scale would
+   force horizontal scroll on narrow viewports and turn already-tight icon
+   buttons into oversized targets. Mobile gets its own purpose-built sizes
+   instead (see `.mobile-*` utilities below and breakpoint-prefixed classes
+   throughout the page). */
 html {
   zoom: 1.15;
+}
+@media (max-width: 767px) {
+  html { zoom: 1; }
 }
 @supports not (zoom: 1) {
   /* Fallback for engines without `zoom` — scale the root font-size. Hits the
      rem-based sizes only, but that's the best we can do without zoom. */
   html { font-size: 18.4px; }
+  @media (max-width: 767px) { html { font-size: 16px; } }
+}
+
+/* iOS safe-area helpers — used by the floating action bar and modal sheets so
+   they don't sit under the home-indicator notch / dynamic island. */
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+.pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+.mb-safe { margin-bottom: max(env(safe-area-inset-bottom), 0px); }
+
+/* Block iOS Safari from auto-zooming on input focus. iOS only triggers the
+   zoom when font-size is < 16px on the focused field, so we bump every form
+   control on mobile. Desktop keeps its tighter typography untouched. */
+@media (max-width: 767px) {
+  input, textarea, select { font-size: 16px; }
 }
 
 /* ── Scrollbar ── */
@@ -222,6 +245,17 @@ html {
 .title-input {
   @apply w-full bg-transparent border-none outline-none text-[28px] font-bold tracking-tight text-text-emphasis placeholder:text-text-faint;
   letter-spacing: -0.02em;
+}
+@media (max-width: 767px) {
+  .title-input { font-size: 22px; }
+}
+
+/* Vertical split divider becomes a horizontal stack on mobile — kill the
+   col-resize cursor and the hover hit-area extension so the editors land
+   flush against each other (mobile uses tab-switch UI to flip between
+   Notes / Enhanced; the divider is intentionally unused there). */
+@media (max-width: 767px) {
+  .split-handle { display: none; }
 }
 
 /* Pulse */

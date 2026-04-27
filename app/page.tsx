@@ -11,7 +11,7 @@ import { getVal, setVal } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
-  FileDown, MessageCircle, Send,
+  FileDown, MessageCircle, Send, Search,
 } from "lucide-react";
 import type { TiptapHandle } from "@/components/TiptapEditor";
 import {
@@ -186,6 +186,11 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Mobile-only: which pane is visible. Below the md breakpoint the two
+  // editors stack into a tab switcher (single pane on screen at a time) since
+  // the side-by-side split + draggable divider is unusable at < 768px wide.
+  // Desktop ignores this state entirely (CSS shows both panes via md:flex).
+  const [mobilePane, setMobilePane] = useState<"notes" | "enhanced">("notes");
 
   // Auth — middleware ensures we get here only when logged in. We still fetch
   // the username for the sidebar tooltip and provide a logout handler.
@@ -531,6 +536,9 @@ export default function Home() {
         setTitleManual(false);
       }
       setEnhancedVersion((v) => v + 1);
+      // Mobile only sees one pane at a time — surface the freshly-enhanced
+      // result automatically so the user doesn't have to tap "Enhanced".
+      setMobilePane("enhanced");
       setTimeout(snapshot, 100);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore sconosciuto";
@@ -774,16 +782,16 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-surface-0 relative overflow-hidden">
 
       {/* ── Floating header (translucent) ── */}
-      <header className="material-thin border-b shrink-0 z-30">
-        <div className="flex items-center gap-3 px-4 py-3">
+      <header className="material-thin border-b shrink-0 z-30 pt-safe">
+        <div className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3">
           <button
             onMouseEnter={handleSidebarHoverEnter}
             onMouseLeave={handleSidebarHoverLeave}
             onClick={() => setSidebarOpen((s) => !s)}
             title={`Apri/chiudi sidebar (${formatShortcut(shortcuts.sidebar)})`}
-            className="press w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-3/50 text-text-secondary hover:text-text-primary"
+            className="press w-10 h-10 md:w-9 md:h-9 flex items-center justify-center rounded-lg hover:bg-surface-3/50 text-text-secondary hover:text-text-primary"
           >
-            <PanelLeft size={16} />
+            <PanelLeft size={18} />
           </button>
 
           <div className="flex items-center gap-2 text-[12px] text-text-muted">
@@ -795,44 +803,49 @@ export default function Home() {
           <div className="flex-1" />
 
           {isRecording && (
-            <div className="flex items-center gap-2 h-8 px-3 rounded-full bg-rec/10 border border-rec/30">
+            <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-rec/10 border border-rec/30">
               <span className="live-dot" />
               <span className="text-[11px] text-rec font-mono tabular-nums">{formatTime(recordTime)}</span>
-              <div className="w-16 h-5">
+              <div className="hidden md:block w-16 h-5">
                 <AudioWaveform getAnalyser={getAnalyser} active={isRecording} bars={16} color="#D4403D" />
               </div>
             </div>
           )}
           {isTranscribingRecording && !isRecording && (
-            <div className="flex items-center gap-2 h-8 px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
+            <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
               <Loader2 size={11} className="animate-spin-fast" />
-              <span className="text-[11px] font-medium">Trascrivo registrazione…</span>
+              <span className="text-[11px] font-medium hidden sm:inline">Trascrivo registrazione…</span>
+              <span className="text-[11px] font-medium sm:hidden">Trascrivo…</span>
             </div>
           )}
           {isTranscribingFile && (
-            <div className="flex items-center gap-2 h-8 px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
+            <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
               <Loader2 size={11} className="animate-spin-fast" />
-              <span className="text-[11px] font-medium">Trascrivo file…</span>
+              <span className="text-[11px] font-medium hidden sm:inline">Trascrivo file…</span>
+              <span className="text-[11px] font-medium sm:hidden">File…</span>
             </div>
           )}
 
+          {/* Audio player: hidden on phones (the action bar's stop control gives
+              access to the recording flow, and the player is too wide to fit). */}
           {audioURL && (
-            <audio controls src={audioURL} className="h-8 opacity-70" style={{ maxWidth: 240 }} />
+            <audio controls src={audioURL} className="hidden md:block h-8 opacity-70" style={{ maxWidth: 240 }} />
           )}
 
           <button
             onClick={() => setPaletteOpen(true)}
             title={`Cerca (${formatShortcut(shortcuts.palette)})`}
-            className="press flex items-center gap-2 h-8 px-3 rounded-lg bg-surface-2/60 hover:bg-surface-3/70 text-text-secondary hover:text-text-primary text-[12px]"
+            className="press flex items-center justify-center gap-2 w-10 h-10 md:w-auto md:h-8 md:px-3 rounded-lg bg-surface-2/60 hover:bg-surface-3/70 text-text-secondary hover:text-text-primary text-[12px]"
           >
-            <span>Cerca</span>
-            <span className="font-mono text-[10px] text-text-faint border border-[var(--material-border)] rounded px-1.5 py-0.5">{formatShortcut(shortcuts.palette)}</span>
+            <Search size={16} className="md:hidden" />
+            <span className="hidden md:inline">Cerca</span>
+            <span className="hidden md:inline font-mono text-[10px] text-text-faint border border-[var(--material-border)] rounded px-1.5 py-0.5">{formatShortcut(shortcuts.palette)}</span>
           </button>
         </div>
       </header>
 
       {/* ── Title row ── */}
-      <div className="px-10 pt-8 pb-3 shrink-0">
+      <div className="px-4 md:px-10 pt-4 md:pt-8 pb-2 md:pb-3 shrink-0">
         <input
           type="text"
           value={title}
@@ -846,24 +859,59 @@ export default function Home() {
               .toLocaleString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
           </span>
           {importedFileName && !isTranscribingFile && (
-            <span className="truncate max-w-[260px]">📁 {importedFileName}</span>
+            <span className="truncate max-w-[160px] md:max-w-[260px]">📁 {importedFileName}</span>
           )}
         </div>
       </div>
 
-      {/* ── Two-column content with draggable divider ── */}
-      <div ref={splitContainerRef} className="flex-1 flex min-h-0 px-10 select-none">
-        {/* LEFT: Notes */}
+      {/* ── Mobile pane switcher (Notes ↔ Enhanced) ──
+          Below md the side-by-side editors collapse into a tab switcher: only
+          one pane is on screen at a time. Desktop hides this row entirely. */}
+      <div className="md:hidden px-4 pb-2 shrink-0">
+        <div className="material-regular border rounded-full p-0.5 flex">
+          <button
+            onClick={() => setMobilePane("notes")}
+            className={`flex-1 h-9 rounded-full text-[12px] font-medium tracking-tight transition-colors ${
+              mobilePane === "notes"
+                ? "bg-surface-3/80 text-text-emphasis shadow-soft"
+                : "text-text-secondary"
+            }`}
+          >
+            Note
+          </button>
+          <button
+            onClick={() => setMobilePane("enhanced")}
+            className={`flex-1 h-9 rounded-full text-[12px] font-medium tracking-tight transition-colors flex items-center justify-center gap-1.5 ${
+              mobilePane === "enhanced"
+                ? "bg-surface-3/80 text-accent shadow-soft"
+                : "text-text-secondary"
+            }`}
+          >
+            <Sparkles size={11} />
+            Enhanced
+          </button>
+        </div>
+      </div>
+
+      {/* ── Two-column content with draggable divider (desktop) /
+            single-pane tab view (mobile) ── */}
+      <div ref={splitContainerRef} className="flex-1 flex min-h-0 px-4 md:px-10 select-none">
+        {/* LEFT: Notes — desktop uses splitRatio (via the --split-basis CSS
+            var so we don't hardcode flex-basis as an inline style that would
+            also apply on mobile); mobile gets `flex-1` and full width because
+            only one pane is visible at a time. */}
         <div
-          className="flex flex-col min-h-0 animate-fade-in min-w-0"
-          style={{ flexBasis: `${splitRatio * 100}%`, flexGrow: 0, flexShrink: 0 }}
+          className={`flex-col min-h-0 animate-fade-in min-w-0 md:flex md:basis-[var(--split-basis)] md:grow-0 md:shrink-0 ${
+            mobilePane === "notes" ? "flex flex-1" : "hidden"
+          }`}
+          style={{ ["--split-basis" as string]: `${splitRatio * 100}%` }}
         >
-          <div className="flex items-center justify-between mb-3 shrink-0">
+          <div className="hidden md:flex items-center justify-between mb-3 shrink-0">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
               Note
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto min-h-0 pr-5 scrollbar-hidden">
+          <div className="flex-1 overflow-y-auto min-h-0 pr-0 md:pr-5 scrollbar-hidden">
             <TiptapEditor
               key={`notes-${activeId}-${notesVersion}`}
               ref={notesRef}
@@ -874,7 +922,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* DIVIDER */}
+        {/* DIVIDER — desktop only (CSS hides on mobile). */}
         <div
           role="separator"
           aria-orientation="vertical"
@@ -920,9 +968,11 @@ export default function Home() {
 
         {/* RIGHT: Enhanced */}
         <div
-          className="flex flex-col min-h-0 animate-fade-in min-w-0 flex-1"
+          className={`flex-col min-h-0 animate-fade-in min-w-0 md:flex md:flex-1 ${
+            mobilePane === "enhanced" ? "flex flex-1" : "hidden"
+          }`}
         >
-          <div className="flex items-center justify-between mb-3 shrink-0">
+          <div className="hidden md:flex items-center justify-between mb-3 shrink-0">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent flex items-center gap-1.5">
               <Sparkles size={11} /> Enhanced
             </span>
@@ -936,7 +986,7 @@ export default function Home() {
               </button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto min-h-0 pl-5 scrollbar-hidden">
+          <div className="flex-1 overflow-y-auto min-h-0 pl-0 md:pl-5 scrollbar-hidden">
             {isEnhancing ? (
               <div className="flex flex-col items-center justify-center h-full gap-4">
                 <div className="relative w-10 h-10">
@@ -962,12 +1012,12 @@ export default function Home() {
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.7 }}
-        className="mx-10 mt-4 mb-3 rounded-2xl material-regular border shadow-soft overflow-hidden shrink-0"
+        className="mx-4 md:mx-10 mt-3 md:mt-4 mb-2 md:mb-3 rounded-2xl material-regular border shadow-soft overflow-hidden shrink-0"
       >
         <button
           type="button"
           onClick={() => setShowTranscript((s) => !s)}
-          className="w-full px-5 py-2.5 flex items-center gap-3 text-left hover:bg-surface-2/30 transition-colors"
+          className="w-full px-4 md:px-5 py-2.5 flex items-center gap-3 text-left hover:bg-surface-2/30 transition-colors"
         >
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted flex items-center gap-2 shrink-0">
             🎙️ Trascrizione
@@ -980,7 +1030,7 @@ export default function Home() {
 
           {!showTranscript && transcript && (
             <span
-              className="flex-1 min-w-0 text-[12px] text-text-secondary truncate text-right font-mono italic"
+              className="hidden sm:inline flex-1 min-w-0 text-[12px] text-text-secondary truncate text-right font-mono italic"
               title={transcript}
             >
               {transcript.slice(-140).replace(/\s+/g, " ").trim()}
@@ -988,7 +1038,8 @@ export default function Home() {
           )}
           {!showTranscript && !transcript && isRecording && (
             <span className="flex-1 min-w-0 text-[12px] text-text-faint italic text-right">
-              Registrazione in corso… (la trascrizione apparirà al termine)
+              <span className="hidden sm:inline">Registrazione in corso… (la trascrizione apparirà al termine)</span>
+              <span className="sm:hidden">Registrando…</span>
             </span>
           )}
 
@@ -1014,24 +1065,27 @@ export default function Home() {
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 placeholder="Trascrizione (al termine della registrazione), file audio importato, o testo incollato…"
-                className="w-full h-32 bg-transparent border-none outline-none resize-none px-5 py-3 text-[13px] leading-relaxed text-text-secondary font-mono"
+                className="w-full h-28 md:h-32 bg-transparent border-none outline-none resize-none px-4 md:px-5 py-3 text-[13px] leading-relaxed text-text-secondary font-mono"
               />
             </motion.div>
           )}
         </AnimatePresence>
       </motion.div>
 
-      {/* ── Floating action bar (sleek, icon-forward) ── */}
-      <div className="px-10 pb-4 shrink-0">
-        <div className="material-regular border rounded-full shadow-float px-2 py-1.5 flex items-center justify-center gap-1 mx-auto w-fit">
+      {/* ── Floating action bar (sleek, icon-forward) ──
+          Mobile: edge-to-edge pill, labels hidden on the secondary buttons
+          (Importa, PDF, Ask) so the primary Rec / Enhance keep their text;
+          tap targets stay ≥40px tall via h-10 on small. */}
+      <div className="px-3 md:px-10 pb-3 md:pb-4 mb-safe shrink-0">
+        <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
             onClick={handleImportClick}
             disabled={isTranscribingFile}
-            className="press flex items-center gap-1.5 h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-50 text-text-secondary hover:text-text-primary text-[12px] font-medium"
+            className="press flex items-center gap-1.5 h-10 md:h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-50 text-text-secondary hover:text-text-primary text-[12px] font-medium shrink-0"
             title="Importa file audio"
           >
-            {isTranscribingFile ? <Loader2 size={13} className="animate-spin-fast" /> : <Download size={13} />}
-            Importa
+            {isTranscribingFile ? <Loader2 size={15} className="animate-spin-fast" /> : <Download size={15} />}
+            <span className="hidden md:inline">Importa</span>
           </button>
 
           <div className="w-px h-5 bg-[var(--material-border)]" />
@@ -1040,7 +1094,7 @@ export default function Home() {
             <button
               onClick={handleStartRec}
               disabled={isEnhancing || isTranscribingRecording}
-              className="btn-premium-rec press flex items-center gap-1.5 h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50"
+              className="btn-premium-rec press flex items-center gap-1.5 h-10 md:h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50 shrink-0"
               title="Registra"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-white/95 shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
@@ -1049,7 +1103,7 @@ export default function Home() {
           ) : (
             <button
               onClick={stopRecording}
-              className="press flex items-center gap-2 h-8 px-3.5 rounded-full bg-rec/15 border border-rec/40 text-rec text-[12px] font-medium tracking-tight"
+              className="press flex items-center gap-2 h-10 md:h-8 px-3.5 rounded-full bg-rec/15 border border-rec/40 text-rec text-[12px] font-medium tracking-tight shrink-0"
             >
               <Square size={9} fill="currentColor" />
               Stop · <span className="font-mono tabular-nums">{formatTime(recordTime)}</span>
@@ -1061,10 +1115,10 @@ export default function Home() {
           <button
             onClick={handleEnhance}
             disabled={isEnhancing || recordingBusy}
-            className="btn-premium-accent press flex items-center gap-1.5 h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50"
+            className="btn-premium-accent press flex items-center gap-1.5 h-10 md:h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50 shrink-0"
             title={`Enhance (${formatShortcut(shortcuts.enhance)})`}
           >
-            <Sparkles size={12} strokeWidth={2.2} />
+            <Sparkles size={13} strokeWidth={2.2} />
             {isEnhancing ? "Elaborando…" : "Enhance"}
           </button>
 
@@ -1074,20 +1128,20 @@ export default function Home() {
             onClick={exportPdf}
             disabled={!title && !enhancedHtml}
             title="Esporta nota + enhanced in PDF"
-            className="press flex items-center gap-1.5 h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-30 text-text-secondary hover:text-text-primary text-[12px] font-medium"
+            className="press flex items-center gap-1.5 h-10 md:h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-30 text-text-secondary hover:text-text-primary text-[12px] font-medium shrink-0"
           >
-            <FileDown size={13} />
-            PDF
+            <FileDown size={15} />
+            <span className="hidden md:inline">PDF</span>
           </button>
 
           <button
             onClick={() => setAskOpen(true)}
             disabled={!askAvailable}
             title="Ask AI — domande sul contenuto (nota enhanced + trascrizione)"
-            className="press flex items-center gap-1.5 h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-30 text-text-secondary hover:text-accent text-[12px] font-medium"
+            className="press flex items-center gap-1.5 h-10 md:h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-30 text-text-secondary hover:text-accent text-[12px] font-medium shrink-0"
           >
-            <MessageCircle size={13} />
-            Ask
+            <MessageCircle size={15} />
+            <span className="hidden md:inline">Ask</span>
           </button>
 
           <input
@@ -1144,7 +1198,7 @@ export default function Home() {
       {/* ── Enhance Prompt Modal ── */}
       <AnimatePresence>
         {promptModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center px-3 sm:px-4 pb-safe">
             <motion.div
               className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
               onClick={() => setPromptModalOpen(false)}
@@ -1154,7 +1208,7 @@ export default function Home() {
               transition={{ duration: 0.15 }}
             />
             <motion.div
-              className="relative w-full max-w-lg rounded-2xl material-thick shadow-float border p-5 overflow-hidden flex flex-col"
+              className="relative w-full max-w-lg rounded-2xl material-thick shadow-float border p-4 sm:p-5 overflow-hidden flex flex-col mb-2 sm:mb-0 max-h-[92vh] overflow-y-auto"
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 4 }}
@@ -1192,18 +1246,18 @@ export default function Home() {
                 </label>
               </div>
 
-              <div className="flex items-center justify-between mt-4">
-                <span className="text-[10px] text-text-faint font-mono">Premi ⌘+Invio per confermare</span>
-                <div className="flex gap-3">
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+                <span className="hidden sm:inline text-[10px] text-text-faint font-mono">Premi ⌘+Invio per confermare</span>
+                <div className="flex gap-3 sm:flex-row flex-row-reverse">
                   <button
                     onClick={() => setPromptModalOpen(false)}
-                    className="press px-4 py-2 rounded-xl text-[13px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-3/60 transition-colors"
+                    className="press flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 rounded-xl text-[13px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-3/60 transition-colors"
                   >
                     Annulla
                   </button>
                   <button
                     onClick={confirmEnhance}
-                    className="btn-premium-accent press px-4 py-2 rounded-xl text-[13px] font-medium tracking-tight text-white"
+                    className="btn-premium-accent press flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 rounded-xl text-[13px] font-medium tracking-tight text-white"
                   >
                     Procedi all&apos;Enhance
                   </button>
@@ -1217,7 +1271,7 @@ export default function Home() {
       {/* ── Ask AI modal ── */}
       <AnimatePresence>
         {askOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+          <div className="fixed inset-0 z-[60] flex items-stretch sm:items-center justify-center sm:px-4">
             <motion.div
               className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
               onClick={() => setAskOpen(false)}
@@ -1227,16 +1281,16 @@ export default function Home() {
               transition={{ duration: 0.15 }}
             />
             <motion.div
-              className="relative w-full max-w-xl h-[70vh] rounded-2xl material-thick shadow-float border overflow-hidden flex flex-col"
+              className="relative w-full max-w-xl h-full sm:h-[70vh] rounded-none sm:rounded-2xl material-thick shadow-float sm:border overflow-hidden flex flex-col pt-safe pb-safe"
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 4 }}
               transition={{ type: "spring", stiffness: 420, damping: 30 }}
             >
-              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-[var(--material-border)]">
-                <MessageCircle size={15} className="text-accent" />
+              <div className="flex items-center gap-2 px-4 sm:px-5 pt-3 sm:pt-4 pb-3 border-b border-[var(--material-border)]">
+                <MessageCircle size={15} className="text-accent shrink-0" />
                 <h3 className="text-[14px] font-semibold text-text-emphasis tracking-tight">Ask AI</h3>
-                <span className="text-[11px] text-text-faint">
+                <span className="hidden sm:inline text-[11px] text-text-faint truncate">
                   — contesto: {enhancedPlain && transcript.trim()
                     ? "nota enhanced + trascrizione"
                     : enhancedPlain
@@ -1248,13 +1302,13 @@ export default function Home() {
                 <div className="flex-1" />
                 <button
                   onClick={() => setAskOpen(false)}
-                  className="press w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary"
+                  className="press w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary"
                 >
-                  <X size={14} />
+                  <X size={16} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3">
                 {askMessages.length === 0 && !askLoading && (
                   <div className="text-[12px] text-text-faint italic leading-relaxed">
                     {askAvailable
@@ -1292,7 +1346,7 @@ export default function Home() {
                       sendAsk();
                     }
                   }}
-                  placeholder={askAvailable ? "Fai una domanda…  (Invio per inviare, Shift+Invio per a capo)" : "Servono nota enhanced o trascrizione per chiedere…"}
+                  placeholder={askAvailable ? "Fai una domanda…" : "Servono nota enhanced o trascrizione per chiedere…"}
                   disabled={!askAvailable || askLoading}
                   rows={2}
                   className="flex-1 bg-surface-2/50 border border-[var(--material-border)] focus:border-accent/40 rounded-xl outline-none resize-none px-3 py-2 text-[13px] leading-relaxed text-text-primary placeholder:text-text-muted/60 transition-colors disabled:opacity-50"
@@ -1300,10 +1354,10 @@ export default function Home() {
                 <button
                   onClick={sendAsk}
                   disabled={!askInput.trim() || askLoading || !askAvailable}
-                  className="btn-premium-accent press shrink-0 w-9 h-9 flex items-center justify-center rounded-xl text-white disabled:opacity-40"
+                  className="btn-premium-accent press shrink-0 w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl text-white disabled:opacity-40"
                   title="Invia"
                 >
-                  <Send size={14} />
+                  <Send size={16} />
                 </button>
               </div>
             </motion.div>
@@ -1313,11 +1367,11 @@ export default function Home() {
 
       {/* ── Error toast ── */}
       {displayError && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 material-thick border border-rec/40 rounded-2xl px-5 py-3 text-xs text-rec max-w-md flex items-center gap-3 z-[70] shadow-float animate-fade-in">
-          <span>{displayError}</span>
+        <div className="fixed bottom-20 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 material-thick border border-rec/40 rounded-2xl px-4 sm:px-5 py-3 text-xs text-rec sm:max-w-md flex items-start sm:items-center gap-3 z-[70] shadow-float animate-fade-in mb-safe">
+          <span className="flex-1">{displayError}</span>
           <button
             onClick={() => { setAppError(null); clearError(); }}
-            className="text-text-muted hover:text-text-secondary transition-colors"
+            className="text-text-muted hover:text-text-secondary transition-colors shrink-0 p-1 -m-1"
           >
             <X size={14} />
           </button>
