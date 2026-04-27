@@ -985,8 +985,10 @@ export default function Home() {
     // collapsing URL bar doesn't push the action bar below the visible area.
     // Combined with body { overflow: hidden } on mobile (globals.css), this
     // means: zero outer scroll, only the editors and transcript drawer
-    // scroll internally.
-    <div className="h-dvh flex flex-col bg-surface-0 relative overflow-hidden">
+    // scroll internally. The mobile pb reserves space for the fixed action
+    // bar (which is pulled out of the flex flow on small to dodge dvh
+    // reporting bugs in iOS standalone PWA mode).
+    <div className="h-dvh flex flex-col bg-surface-0 relative overflow-hidden pb-[calc(env(safe-area-inset-bottom)+3.25rem)] md:pb-0">
 
       {/* ── Floating header (translucent) ── */}
       <header className="material-thin border-b shrink-0 z-30 pt-safe">
@@ -1283,10 +1285,15 @@ export default function Home() {
           Mobile: edge-to-edge pill, labels hidden on the secondary buttons
           (Importa, PDF, Ask) so the primary Rec / Enhance keep their text;
           tap targets stay ≥40px tall via h-10 on small.
-          Bottom spacing on mobile is *only* the safe-area inset — we want
-          the bar pinned right above the home-indicator with no extra gap.
-          Desktop keeps a comfortable pb-4. */}
-      <div className="px-3 md:px-10 pb-safe md:pb-4 shrink-0">
+
+          On mobile the wrapper is pulled out of the flex flow with
+          position:fixed pinned to bottom:0. This sidesteps an iOS
+          standalone-PWA bug where 100dvh sometimes reports a value
+          smaller than the actual visible viewport, leaving phantom space
+          below an in-flow bar. The root container reserves matching
+          padding-bottom so the editor / transcript don't slide under the
+          fixed bar. Desktop keeps the in-flow `shrink-0` layout. */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 pb-safe md:pb-4">
         <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
             onClick={handleImportClick}
