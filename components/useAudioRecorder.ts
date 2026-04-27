@@ -7,14 +7,22 @@ import { useState, useRef, useCallback } from "react";
  *
  * Strategy:
  *   1. Try Vercel Blob direct upload — bypasses Vercel's 4.5 MB body cap.
- *      Only works when `BLOB_READ_WRITE_TOKEN` is configured server-side
- *      (production). The `/api/blob/upload-token` endpoint returns 503 if
- *      not — that's our signal to fall back.
- *   2. Fall back to direct FormData POST to `/api/transcribe`. This works
- *      in local dev (no body cap) and for tiny files in prod.
+ *      Only works when `BLOB_READ_WRITE_TOKEN` is configured AND the Blob
+ *      store has the deploy origin in its CORS allowlist. Either condition
+ *      can fail in real deploys (token misbinding, missing origin entry…),
+ *      and the failure mode of the second one is a CORS error that surfaces
+ *      as an opaque "Failed to fetch" — not a clean status code.
+ *   2. Fall back to FormData POST to `/api/transcribe`. The serverless body
+ *      cap (4.5 MB) means files larger than that will 413 here, but that
+ *      gives the user a clear error instead of a cryptic CORS one.
+ *
+ * We fall back on ANY blob-path failure, not just the historical "503 not
+ * configured" case, because real-world failures (CORS, expired token,
+ * region issue) all leave the user staring at a console error otherwise.
  */
 async function uploadAndTranscribe(file: File): Promise<string> {
   // ── Path A: Blob client upload, then handoff URL to /api/transcribe ──
+  let blobError: unknown = null;
   try {
     const { upload } = await import("@vercel/blob/client");
     const newBlob = await upload(file.name, file, {
@@ -34,25 +42,42 @@ async function uploadAndTranscribe(file: File): Promise<string> {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Errore trascrizione");
     return ((data.text as string) || "").trim();
-  } catch (blobErr) {
-    // If the Blob path failed because the server returned 503 (Blob not
-    // configured) or any network-level fall-through, try direct upload.
-    const errMsg = blobErr instanceof Error ? blobErr.message : String(blobErr);
-    const looksLikeBlobNotConfigured = /503|non configurato|fallback/i.test(errMsg);
-    if (!looksLikeBlobNotConfigured) {
-      // Real Blob error (auth, validation, etc.) — surface it instead of silently
-      // hammering the small-body endpoint with a multi-MB upload that will 413.
-      throw blobErr;
-    }
+  } catch (err) {
+    blobError = err;
+    console.warn("Blob upload failed, falling back to FormData:", err);
   }
 
-  // ── Path B: classic FormData direct upload (local dev / no Blob) ──
-  const formData = new FormData();
-  formData.append("audio", file);
-  const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Errore trascrizione");
-  return ((data.text as string) || "").trim();
+  // ── Path B: classic FormData direct upload (local dev / Blob misconfigured) ──
+  // Hits the 4.5 MB Vercel serverless body cap; large files will 413 here
+  // and we surface a clearer message including the original Blob error so
+  // the user knows what to fix.
+  try {
+    const formData = new FormData();
+    formData.append("audio", file);
+    const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 413) {
+        throw new Error(
+          "File troppo grande per l'upload diretto (>4.5 MB). " +
+          "Configura il Blob store su Vercel (Storage → Blob → Allowed Origins) " +
+          "per abilitare l'upload diretto."
+        );
+      }
+      throw new Error((data as { error?: string }).error || `Errore trascrizione (HTTP ${res.status})`);
+    }
+    return (((data as { text?: string }).text) || "").trim();
+  } catch (formErr) {
+    // Both paths failed. Surface the most actionable error. If Path B's
+    // error is the 413 we crafted above, prefer it; otherwise prefer the
+    // original Blob error which usually tells us why the primary path
+    // (the one designed for this file size) failed.
+    const formMsg = formErr instanceof Error ? formErr.message : String(formErr);
+    if (/troppo grande|413|cors|allowed origin/i.test(formMsg)) {
+      throw formErr;
+    }
+    throw blobError instanceof Error ? blobError : (formErr as Error);
+  }
 }
 
 interface UseAudioRecorderReturn {
