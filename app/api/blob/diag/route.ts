@@ -24,8 +24,10 @@ export async function GET() {
 
   try {
     // Tiny payload — won't count against quotas.
+    // `access: "private"` matches the store's configured mode. Public stores
+    // would reject this; if you migrate to a public store, switch back.
     const blob = await put(`diag-${Date.now()}.txt`, "ping ok", {
-      access: "public",
+      access: "private",
       addRandomSuffix: true,
       contentType: "text/plain",
     });

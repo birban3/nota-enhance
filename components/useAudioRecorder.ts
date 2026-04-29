@@ -25,8 +25,13 @@ async function uploadAndTranscribe(file: File): Promise<string> {
   let blobError: unknown = null;
   try {
     const { upload } = await import("@vercel/blob/client");
+    // The store on Vercel is configured with `private` access. The client
+    // upload's `access` field MUST match the store's mode, otherwise the
+    // platform rejects with "Cannot use public access on a private store".
+    // Server-side reads (in /api/transcribe) authenticate via the
+    // BLOB_READ_WRITE_TOKEN — the URL itself isn't directly fetchable.
     const newBlob = await upload(file.name, file, {
-      access: "public",
+      access: "private",
       handleUploadUrl: "/api/blob/upload-token",
       contentType: file.type || "audio/webm",
     });
