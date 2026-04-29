@@ -329,10 +329,19 @@ export default function Home() {
 
   const buildLatestArchive = useCallback((): ArchivedNote[] => {
     if (!activeId) return archive;
-    const notesMd = notesRef.current?.getMarkdown() ?? "";
+    // Distinguish "editor mounted, content empty" ("") from "editor not
+    // mounted yet" (undefined). The TiptapEditor is dynamic-imported so
+    // notesRef.current can be null on a fast reload (initial sync fires
+    // on `hydrated`, which can flip true before the editor finishes
+    // mounting). If we coerced undefined to "" we'd overwrite the
+    // freshly-hydrated note text with empty — which is exactly the bug
+    // that was wiping note bodies but leaving titles intact (titles
+    // live in React state, not the editor ref).
+    const notesMdFresh = notesRef.current?.getMarkdown();
     let changed = false;
     const next = archive.map((n) => {
       if (n.id !== activeId) return n;
+      const notesMd = notesMdFresh !== undefined ? notesMdFresh : n.notes;
       const sameContent =
         n.notes === notesMd &&
         n.transcript === transcript &&
