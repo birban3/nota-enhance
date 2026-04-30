@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
+// Same reasoning as /api/enhance: OpenRouter calls can run long; the
+// 10s default would truncate. Pin Node runtime + dynamic so we don't
+// get edge-defaulted, and lift maxDuration to 60s.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",

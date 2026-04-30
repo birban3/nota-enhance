@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
+// OpenRouter → DeepSeek can take 20-40s on cold paths. Default Vercel
+// Lambda timeout (10s on hobby) truncates the response mid-stream and
+// the user sees a 504. Bump to 60s (Pro plans go higher).
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",

@@ -466,6 +466,14 @@ export default function Home() {
   const syncInFlightRef = useRef(false);
   const initialSyncDoneRef = useRef(false);
   const remoteSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Signature of the last payload we successfully POSTed-and-adopted. Used
+  // to dedup the auto-trigger feedback loop: every successful sync calls
+  // setArchive(merged), which trips the `[archive, …]` useEffect, which
+  // re-schedules a sync 2.5s later — and so on, forever, even when
+  // nothing actually changed. Comparing against this ref skips the no-op
+  // round-trip while still allowing visibility/focus PULL syncs through
+  // (those carry isPull and bypass the check, see below).
+  const lastSyncedSignatureRef = useRef<string>("");
 
   const tombstonesRef = useRef(tombstones);
   useEffect(() => { tombstonesRef.current = tombstones; }, [tombstones]);
@@ -473,17 +481,37 @@ export default function Home() {
   const activeIdRef = useRef(activeId);
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
-  const syncWithServer = useCallback(async (opts: { isInitial?: boolean } = {}) => {
+  const syncWithServer = useCallback(async (opts: { isInitial?: boolean; isPull?: boolean } = {}) => {
     if (syncInFlightRef.current) return;
     if (!hydrated) return;
+
+    // Build the freshest payload the same way persistNow does — by reading
+    // the editor markdown directly so in-flight typing is included.
+    const liveArchive = buildLatestArchive();
+    const currentTombstones = tombstonesRef.current;
+
+    // Dedup auto-triggered syncs (state-change debounce): if nothing has
+    // changed since the last successful sync, don't waste a round-trip.
+    // isInitial and isPull (visibility/focus) bypass — those want the
+    // remote-side updates even when local is identical.
+    let signature = "";
+    try {
+      signature = JSON.stringify({ a: liveArchive, t: currentTombstones });
+    } catch {}
+    if (
+      !opts.isInitial &&
+      !opts.isPull &&
+      signature &&
+      signature === lastSyncedSignatureRef.current
+    ) {
+      return;
+    }
+
     syncInFlightRef.current = true;
     try {
-      // Build the freshest payload the same way persistNow does — by reading
-      // the editor markdown directly so in-flight typing is included.
-      const liveArchive = buildLatestArchive();
       const body = {
         archive: liveArchive,
-        tombstones: tombstonesRef.current,
+        tombstones: currentTombstones,
       };
       const res = await fetch("/api/notes/sync", {
         method: "POST",
@@ -580,6 +608,14 @@ export default function Home() {
       void setVal(STORAGE_KEY, nextArchive);
       // Refresh dirty-check ref so the next persistNow doesn't undo this.
       try { lastPersistedRef.current = JSON.stringify(nextArchive); } catch {}
+      // Record the signature of what's now in sync with the server, so
+      // the auto-trigger dedup above can skip identical follow-up syncs.
+      try {
+        lastSyncedSignatureRef.current = JSON.stringify({
+          a: nextArchive,
+          t: merged.tombstones || {},
+        });
+      } catch {}
     } catch (err) {
       console.warn("notes/sync error", err);
     } finally {
@@ -614,12 +650,14 @@ export default function Home() {
 
   // 3. Pull on tab visibility / window focus so cross-device updates are
   //    near-real-time (switching to this tab on the other device triggers a
-  //    pull within ~one network round-trip).
+  //    pull within ~one network round-trip). isPull=true bypasses the
+  //    "nothing changed locally" dedup — we want the server's view even
+  //    when the local archive is identical to what we last sent.
   useEffect(() => {
     if (!hydrated) return;
-    const onFocus = () => { void syncWithServer(); };
+    const onFocus = () => { void syncWithServer({ isPull: true }); };
     const onVisible = () => {
-      if (document.visibilityState === "visible") void syncWithServer();
+      if (document.visibilityState === "visible") void syncWithServer({ isPull: true });
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
@@ -750,14 +788,18 @@ export default function Home() {
       // Mobile only sees one pane at a time — surface the freshly-enhanced
       // result automatically so the user doesn't have to tap "Enhanced".
       setMobilePane("enhanced");
-      setTimeout(snapshot, 100);
+      // No explicit snapshot here: the belt-and-suspenders useEffect on
+      // [title, enhancedHtml, …] picks up these state writes after React
+      // commits and snapshot-s automatically. Calling snapshot() on a
+      // setTimeout was racing with that commit (sometimes reading stale
+      // state, sometimes overlapping a sync) — pure redundancy.
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore sconosciuto";
       setAppError(message);
     }
 
     setIsEnhancing(false);
-  }, [transcript, snapshot, titleManual, enhanceInstructions, includeImages, includePdfs, title]);
+  }, [transcript, titleManual, enhanceInstructions, includeImages, includePdfs, title]);
 
   const handleEnhance = useCallback(() => {
     const notes = notesRef.current?.getMarkdown() || "";
