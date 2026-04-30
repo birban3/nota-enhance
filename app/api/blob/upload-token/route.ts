@@ -38,22 +38,14 @@ export async function POST(req: NextRequest) {
       body,
       request: req,
       onBeforeGenerateToken: async () => ({
-        // Minimal, permissive config. Keep this VERY simple — extra options
-        // (validUntil, narrow content-type lists) have caused malformed
-        // tokens that Vercel's blob endpoint then rejects with a 400.
-        allowedContentTypes: [
-          "audio/mpeg",
-          "audio/mp4",
-          "audio/m4a",
-          "audio/x-m4a",
-          "audio/wav",
-          "audio/x-wav",
-          "audio/webm",
-          "audio/ogg",
-          "audio/flac",
-          "audio/*",
-          "application/octet-stream",
-        ],
+        // No allowedContentTypes restriction. We had a curated list of audio
+        // MIME types but it caused legitimate uploads to fail (e.g. an AAC
+        // file with `audio/aac` MIME got rejected even though our list
+        // included the `audio/*` wildcard — wildcard handling on the Blob
+        // platform isn't reliable enough to depend on for an audio-only
+        // app). Trust the client: the file picker `accept="audio/*"` and
+        // the 25 MB size cap (Groq Whisper limit) gate before we get here,
+        // and Whisper itself will reject anything it can't decode.
         addRandomSuffix: true,
       }),
       onUploadCompleted: async () => {

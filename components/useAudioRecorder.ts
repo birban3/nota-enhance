@@ -63,10 +63,14 @@ async function uploadAndTranscribe(file: File): Promise<string> {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 413) {
+        // Path A (Blob direct upload) is the one designed for files this
+        // big — if we ended up here it failed for some other reason.
+        // Surface that the Blob path is what actually broke, and point
+        // the user at the console where the original error was logged.
         throw new Error(
-          "File troppo grande per l'upload diretto (>4.5 MB). " +
-          "Configura il Blob store su Vercel (Storage → Blob → Allowed Origins) " +
-          "per abilitare l'upload diretto."
+          "File troppo grande per l'upload diretto via API (>4.5 MB) e l'upload " +
+          "su Vercel Blob non è andato a buon fine. Controlla la console del " +
+          "browser per il dettaglio dell'errore Blob."
         );
       }
       throw new Error((data as { error?: string }).error || `Errore trascrizione (HTTP ${res.status})`);

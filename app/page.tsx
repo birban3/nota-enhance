@@ -1373,7 +1373,7 @@ export default function Home() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="audio/*,.mp3,.wav,.m4a,.webm,.ogg"
+            accept="audio/*,.mp3,.m4a,.aac,.wav,.webm,.ogg,.opus,.flac"
             onChange={handleFileChange}
             className="hidden"
           />
