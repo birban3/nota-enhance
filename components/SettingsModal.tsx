@@ -48,10 +48,22 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
 
   const ids = Object.keys(SHORTCUT_LABELS) as ShortcutId[];
 
+  const editorShortcuts = [
+    { label: "Grassetto", keys: "⌘ B", md: "**testo**" },
+    { label: "Corsivo", keys: "⌘ I", md: "*testo*" },
+    { label: "Sottolineato", keys: "⌘ U" },
+    { label: "Evidenziato", keys: "⌘ E" },
+    { label: "Titolo 1", keys: "⌘ ⌥ 1", md: "# " },
+    { label: "Titolo 2", keys: "⌘ ⌥ 2", md: "## " },
+    { label: "Titolo 3", keys: "⌘ ⌥ 3", md: "### " },
+    { label: "Elenco puntato", keys: "⌘ ⇧ 8", md: "- " },
+    { label: "Citazione", keys: "⌘ ⇧ B", md: "> " },
+  ];
+
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[65] flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center px-0 sm:px-4">
           <motion.div
             className="absolute inset-0 bg-black/50"
             onClick={onClose}
@@ -61,14 +73,14 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           />
           <motion.div
-            className="relative w-full max-w-lg rounded-2xl material-thick shadow-float border overflow-hidden"
-            initial={{ opacity: 0, scale: 0.94, y: -8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            className="relative w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl material-thick shadow-float border overflow-hidden max-h-[85vh] sm:max-h-none"
+            initial={{ opacity: 0, y: 40, scale: 1 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 40, scale: 1 }}
             transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
           >
             {/* Header */}
-            <div className="px-5 h-14 border-b border-[var(--material-border)] flex items-center gap-3">
+            <div className="px-4 sm:px-5 h-14 border-b border-[var(--material-border)] flex items-center gap-3">
               <Keyboard size={16} className="text-text-muted" />
               <span className="text-[14px] font-semibold text-text-emphasis tracking-tight">
                 Scorciatoie da tastiera
@@ -92,14 +104,14 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
                   return (
                     <li
                       key={id}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-2/60 transition-colors"
+                      className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2.5 rounded-xl hover:bg-surface-2/60 transition-colors"
                     >
-                      <span className="flex-1 text-[13px] text-text-secondary">
+                      <span className="flex-1 text-[13px] text-text-secondary min-w-0 truncate">
                         {SHORTCUT_LABELS[id]}
                       </span>
                       <button
                         onClick={() => setRecordingId(id)}
-                        className={`press min-w-[80px] h-8 px-3 rounded-lg font-mono text-[12px] transition-colors ${
+                        className={`press min-w-[72px] sm:min-w-[80px] h-8 px-2 sm:px-3 rounded-lg font-mono text-[12px] transition-colors shrink-0 ${
                           isRecording
                             ? "bg-accent text-white border border-accent"
                             : "bg-surface-2/70 hover:bg-surface-3/80 text-text-primary border border-[var(--material-border)]"
@@ -111,7 +123,7 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
                         <button
                           onClick={() => onChange({ ...shortcuts, [id]: DEFAULT_SHORTCUTS[id] })}
                           title="Ripristina default"
-                          className="press w-7 h-7 flex items-center justify-center rounded-lg text-text-faint hover:text-text-primary hover:bg-surface-3/50"
+                          className="press w-7 h-7 flex items-center justify-center rounded-lg text-text-faint hover:text-text-primary hover:bg-surface-3/50 shrink-0"
                         >
                           <RotateCcw size={12} />
                         </button>
@@ -134,22 +146,12 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
                 <span className="text-[9px] bg-surface-2 px-1.5 py-0.5 rounded text-text-faint uppercase tracking-widest font-semibold border border-[var(--material-border)]">Non modificabili</span>
               </div>
               <ul className="space-y-1 mb-2">
-                {[
-                  { label: "Grassetto", keys: "⌘ B", md: "**testo**" },
-                  { label: "Corsivo", keys: "⌘ I", md: "*testo*" },
-                  { label: "Sottolineato", keys: "⌘ U" },
-                  { label: "Evidenziato", keys: "⌘ E" },
-                  { label: "Titolo 1", keys: "⌘ ⌥ 1", md: "# " },
-                  { label: "Titolo 2", keys: "⌘ ⌥ 2", md: "## " },
-                  { label: "Titolo 3", keys: "⌘ ⌥ 3", md: "### " },
-                  { label: "Elenco puntato", keys: "⌘ ⇧ 8", md: "- " },
-                  { label: "Citazione", keys: "⌘ ⇧ B", md: "> " },
-                ].map((s) => (
-                  <li key={s.label} className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors">
+                {editorShortcuts.map((s) => (
+                  <li key={s.label} className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 rounded-xl transition-colors">
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <span className="text-[13px] text-text-secondary">{s.label}</span>
                       {s.md && (
-                        <span className="text-[10px] text-text-faint bg-surface-2/50 border border-[var(--material-border)] px-1.5 py-[1px] rounded font-mono truncate">
+                        <span className="text-[10px] text-text-faint bg-surface-2/50 border border-[var(--material-border)] px-1.5 py-[1px] rounded font-mono truncate hidden sm:inline">
                           scrivi {s.md}
                         </span>
                       )}

@@ -207,7 +207,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     try {
       const text = await uploadAndTranscribe(file);
       if (text) {
-        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + text : text));
+        const label = `[📁 ${file.name}]`;
+        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + label + "\n" + text : label + "\n" + text));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore trascrizione";
