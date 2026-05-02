@@ -112,7 +112,7 @@ function mdToHtml(md: string): string {
       else if (t.startsWith("# ")) html += `<h1>${inline(t.slice(2))}</h1>`;
       else if (PURE_IMG_RE.test(t) || PURE_FILE_RE.test(t)) html += inline(t);
       else if (t === "") html += `<p></p>`;
-      else html += `<p>${inline(t)}</p>`;
+      else html += `<p>${inline(t).replace(/\n/g, "<br>")}</p>`;
     }
   }
   if (inUl) html += "</ul>";
@@ -361,6 +361,21 @@ export default function Home() {
     return next;
   }, [hydrated, activeId, archive, buildLatestArchive]);
 
+  // Direct-persist helper for structural archive mutations (pin toggle,
+  // delete) that don't touch the active note's content. buildLatestArchive
+  // only diffs the active note, so these changes were silently dropped.
+  const persistArchive = useCallback((nextArchive: ArchivedNote[], nextActiveId?: string) => {
+    if (!hydrated) return;
+    const id = nextActiveId ?? activeId;
+    let serialized: string;
+    try { serialized = JSON.stringify(nextArchive); } catch { serialized = ""; }
+    if (serialized && serialized !== lastPersistedRef.current) {
+      lastPersistedRef.current = serialized;
+      void setVal(STORAGE_KEY, nextArchive);
+    }
+    if (id) void setVal(ACTIVE_ID_KEY, id);
+  }, [hydrated, activeId]);
+
   // The classic snapshot — pushes the latest into React state AND IDB.
   const snapshot = useCallback(() => {
     const next = persistNow();
@@ -458,9 +473,11 @@ export default function Home() {
     (id: string) => {
       setArchive((prev) => {
         const remaining = prev.filter((n) => n.id !== id);
+        let newActiveId: string | undefined;
         if (id === activeId) {
           if (remaining.length === 0) {
             const fresh = newEmptyNote();
+            newActiveId = fresh.id;
             setActiveId(fresh.id);
             setInitialNotesHtml("");
             setEnhancedHtml("");
@@ -470,9 +487,12 @@ export default function Home() {
             setSplitRatio(DEFAULT_SPLIT);
             setNotesVersion((v) => v + 1);
             setEnhancedVersion((v) => v + 1);
-            return [fresh];
+            const result = [fresh];
+            persistArchive(result, fresh.id);
+            return result;
           }
           const next = remaining[0];
+          newActiveId = next.id;
           setActiveId(next.id);
           setInitialNotesHtml(mdToHtml(next.notes));
           setEnhancedHtml(next.enhancedHtml || "");
@@ -484,15 +504,20 @@ export default function Home() {
           setNotesVersion((v) => v + 1);
           setEnhancedVersion((v) => v + 1);
         }
+        persistArchive(remaining, newActiveId);
         return remaining;
       });
     },
-    [activeId, setTranscript]
+    [activeId, setTranscript, persistArchive]
   );
 
   const handleTogglePin = useCallback((id: string) => {
-    setArchive((prev) => prev.map((n) => (n.id === id ? { ...n, pinned: !n.pinned } : n)));
-  }, []);
+    setArchive((prev) => {
+      const next = prev.map((n) => (n.id === id ? { ...n, pinned: !n.pinned } : n));
+      persistArchive(next);
+      return next;
+    });
+  }, [persistArchive]);
 
   const handleTitleChange = (v: string) => { setTitle(v); setTitleManual(true); };
 
@@ -677,8 +702,8 @@ export default function Home() {
       iframe.style.position = "fixed";
       iframe.style.right = "0";
       iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.width = "800px";
+      iframe.style.height = "600px";
       iframe.style.border = "0";
       iframe.style.opacity = "0";
       iframe.style.pointerEvents = "none";
@@ -1265,13 +1290,15 @@ export default function Home() {
                 {askMessages.map((m, i) => (
                   <div
                     key={i}
-                    className={`max-w-[92%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+                    className={`max-w-[92%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed ${
                       m.role === "user"
-                        ? "ml-auto bg-accent/15 border border-accent/25 text-text-primary"
-                        : "mr-auto bg-surface-2/70 border border-[var(--material-border)] text-text-primary"
+                        ? "ml-auto bg-accent/15 border border-accent/25 text-text-primary whitespace-pre-wrap"
+                        : "mr-auto bg-surface-2/70 border border-[var(--material-border)] text-text-primary ask-ai-response"
                     }`}
                   >
-                    {m.content}
+                    {m.role === "assistant"
+                      ? <div dangerouslySetInnerHTML={{ __html: mdToHtml(m.content) }} />
+                      : m.content}
                   </div>
                 ))}
                 {askLoading && (

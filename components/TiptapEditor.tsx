@@ -99,6 +99,7 @@ const FileAttachment = Node.create({
 
 /* ── Tiptap JSON → Markdown (best-effort, also covers images & files) ── */
 function nodeText(node: Record<string, unknown>): string {
+  if ((node as { type?: string }).type === "hardBreak") return "\n";
   if (typeof (node as { text?: string }).text === "string") {
     const marks = (node as { marks?: { type: string }[] }).marks || [];
     let t = (node as { text: string }).text;
@@ -137,7 +138,7 @@ function docToMarkdown(doc: Record<string, unknown>): string {
       lines.push(nodeText(node));
     }
   }
-  return lines.join("\n").trim();
+  return lines.join("\n");
 }
 
 /* ── File reading helper ── */

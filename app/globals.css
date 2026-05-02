@@ -197,6 +197,24 @@ html {
   @apply text-text-faint float-left h-0 pointer-events-none;
 }
 
+/* ── Ask AI response formatting ── */
+.ask-ai-response p { margin: 4px 0; }
+.ask-ai-response h1 { @apply text-base font-bold mt-3 mb-1.5 text-text-emphasis tracking-tight; }
+.ask-ai-response h2 { @apply text-[14px] font-semibold mt-3 mb-1 text-text-emphasis tracking-tight; }
+.ask-ai-response h3 { @apply text-[13px] font-semibold mt-2 mb-1 text-text-primary; }
+.ask-ai-response ul { @apply pl-4 my-1.5 list-disc; }
+.ask-ai-response li { @apply mb-0.5 leading-snug text-text-primary; }
+.ask-ai-response li::marker { @apply text-accent; }
+.ask-ai-response strong { @apply font-semibold text-text-emphasis; }
+.ask-ai-response em { font-style: italic; }
+.ask-ai-response mark, .ask-ai-response .hl-hermes {
+  background: transparent; color: #E5651A; font-weight: 600;
+}
+.ask-ai-response blockquote {
+  @apply border-l-2 border-accent/50 pl-3 py-1 my-2 text-[12px] text-text-secondary italic;
+}
+.ask-ai-response blockquote p { @apply my-0 leading-relaxed; }
+
 /* Hide vertical scrollbar but keep scroll functionality */
 .scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-hidden::-webkit-scrollbar { width: 0; height: 0; display: none; }
