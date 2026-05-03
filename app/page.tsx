@@ -60,10 +60,17 @@ function mdToHtml(md: string): string {
   const FILE_RE = /\[📎 ([^\]]*)\]\(([^)]+)\)/g;
 
   const inline = (s: string) => {
-    // 1. Replace <u>..</u> with placeholders so HTML escape doesn't kill them.
+    // 1. Replace <u>..</u> and <br> with placeholders so HTML escape
+    //    doesn't kill them. <br> comes from Tiptap hardBreak round-trip
+    //    (Shift+Enter inside a paragraph) — without this it'd come out
+    //    as literal "&lt;br&gt;" text instead of a line break.
     const uOpen = "\x00U_OPEN\x00";
     const uClose = "\x00U_CLOSE\x00";
-    let t = s.replace(/<u>/g, uOpen).replace(/<\/u>/g, uClose);
+    const brTag = "\x00BR\x00";
+    let t = s
+      .replace(/<u>/g, uOpen)
+      .replace(/<\/u>/g, uClose)
+      .replace(/<br\s*\/?>/gi, brTag);
 
     // 2. Pull out images & file chips first (they contain `(` `)` etc.)
     const placeholders: string[] = [];
@@ -83,8 +90,8 @@ function mdToHtml(md: string): string {
     // 3. HTML-escape the rest.
     t = esc(t);
 
-    // 4. Restore underline placeholders.
-    t = t.split(uOpen).join("<u>").split(uClose).join("</u>");
+    // 4. Restore underline + hard-break placeholders.
+    t = t.split(uOpen).join("<u>").split(uClose).join("</u>").split(brTag).join("<br>");
 
     // 5. Bold first (eats its own `**`), then italic, then highlight.
     t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
@@ -745,7 +752,17 @@ export default function Home() {
   );
 
   const handleTogglePin = useCallback((id: string) => {
-    setArchive((prev) => prev.map((n) => (n.id === id ? { ...n, pinned: !n.pinned } : n)));
+    // Bump updatedAt — the server-side merge in lib/notes-store.ts uses
+    // a strict `>` on updatedAt, so without a fresh timestamp the pinned
+    // copy from this device would tie with whatever the server already
+    // stored (unpinned, same updatedAt because pinning isn't a content
+    // edit) and the merge'd keep the older entry → pin silently
+    // reverted on the next pull.
+    setArchive((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n
+      )
+    );
   }, []);
 
   const handleTitleChange = (v: string) => { setTitle(v); setTitleManual(true); };
@@ -935,13 +952,18 @@ export default function Home() {
 
       const iframe = document.createElement("iframe");
       iframe.setAttribute("aria-hidden", "true");
+      // Real (non-zero) dimensions positioned off-screen.
+      // 0×0 + opacity:0 caused Safari and Chrome to skip layout/paint of
+      // the iframe document, and `contentWindow.print()` then printed a
+      // blank page. Giving it real width/height while keeping it visually
+      // hidden (left:-10000px) restores layout without showing a flash.
       iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.left = "-10000px";
+      iframe.style.top = "0";
+      iframe.style.width = "210mm";  // A4 width — matches @page in pdf-export-root
+      iframe.style.height = "297mm";
       iframe.style.border = "0";
-      iframe.style.opacity = "0";
+      iframe.style.opacity = "1";
       iframe.style.pointerEvents = "none";
 
       // Load via srcdoc — fires a reliable `load` event in every browser.
@@ -963,15 +985,23 @@ export default function Home() {
             setAppError("Errore durante la stampa PDF.");
           }
         };
+        // Wait for fonts AND the next paint frame. Without the rAF some
+        // browsers (Safari especially) trigger print before first layout
+        // pass, producing the same blank page. Double-rAF is overkill but
+        // costs only a few ms.
+        const win2 = win as Window & { requestAnimationFrame?: (cb: () => void) => void };
+        const afterPaint = () => {
+          win2.requestAnimationFrame?.(() => win2.requestAnimationFrame?.(doPrint) ?? doPrint());
+        };
         const fonts = (win.document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
-        if (fonts?.ready) fonts.ready.then(doPrint, doPrint);
-        else doPrint();
+        if (fonts?.ready) fonts.ready.then(afterPaint, afterPaint);
+        else afterPaint();
 
         // Clean up the iframe a bit later — Safari surfaces the dialog
         // asynchronously; remove too soon and the print job is cancelled.
         setTimeout(() => {
           try { document.body.removeChild(iframe); } catch {}
-        }, 4000);
+        }, 6000);
       };
 
       iframe.addEventListener("load", triggerPrint, { once: true });
@@ -1587,13 +1617,25 @@ export default function Home() {
                 {askMessages.map((m, i) => (
                   <div
                     key={i}
-                    className={`max-w-[92%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+                    className={`max-w-[92%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed ${
                       m.role === "user"
-                        ? "ml-auto bg-accent/15 border border-accent/25 text-text-primary"
-                        : "mr-auto bg-surface-2/70 border border-[var(--material-border)] text-text-primary"
+                        ? "ml-auto bg-accent/15 border border-accent/25 text-text-primary whitespace-pre-wrap"
+                        : "mr-auto bg-surface-2/70 border border-[var(--material-border)] text-text-primary ask-md"
                     }`}
                   >
-                    {m.content}
+                    {m.role === "user" ? (
+                      m.content
+                    ) : (
+                      // Assistant replies arrive as markdown (bold, lists,
+                      // blockquotes…). Render them through the same
+                      // mdToHtml pipeline used by the note editors so the
+                      // formatting actually shows up. The wrapper class
+                      // `ask-md` styles the resulting elements (see
+                      // globals.css). Source is server-side AI content,
+                      // not user-injected HTML, so dangerouslySetInnerHTML
+                      // is acceptable here.
+                      <div dangerouslySetInnerHTML={{ __html: mdToHtml(m.content) }} />
+                    )}
                   </div>
                 ))}
                 {askLoading && (

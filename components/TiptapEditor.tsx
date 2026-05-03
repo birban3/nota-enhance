@@ -99,6 +99,12 @@ const FileAttachment = Node.create({
 
 /* ── Tiptap JSON → Markdown (best-effort, also covers images & files) ── */
 function nodeText(node: Record<string, unknown>): string {
+  // Hard breaks (Shift+Enter) must round-trip — without this, multi-line
+  // paragraphs collapsed into a single line on reload (the user's "andare
+  // a capo perso" bug). We emit a literal <br> tag in the markdown stream;
+  // the page-side mdToHtml preserves it through HTML-escape (same trick as
+  // <u>) and Tiptap parses it back to a hardBreak node.
+  if ((node as { type?: string }).type === "hardBreak") return "<br>";
   if (typeof (node as { text?: string }).text === "string") {
     const marks = (node as { marks?: { type: string }[] }).marks || [];
     let t = (node as { text: string }).text;

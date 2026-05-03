@@ -239,6 +239,33 @@ html {
   @apply text-text-faint float-left h-0 pointer-events-none;
 }
 
+/* Ask AI markdown bubble — render the rendered markdown coming from the
+   model with sane defaults. Tighter than the editor's typography (chat
+   context) but with the same orange accents. */
+.ask-md p { margin: 0.25em 0; }
+.ask-md p:first-child { margin-top: 0; }
+.ask-md p:last-child { margin-bottom: 0; }
+.ask-md h1 { @apply text-[15px] font-semibold mt-3 mb-1.5 text-text-emphasis tracking-tight; }
+.ask-md h2 { @apply text-[14px] font-semibold mt-2.5 mb-1 text-text-emphasis tracking-tight; }
+.ask-md h3 { @apply text-[13px] font-semibold mt-2 mb-1 text-text-primary; }
+.ask-md ul { @apply pl-5 my-1.5 list-disc; }
+.ask-md li { @apply mb-0.5 leading-snug; }
+.ask-md li::marker { @apply text-accent; }
+.ask-md strong { @apply font-semibold text-text-emphasis; }
+.ask-md em { font-style: italic; }
+.ask-md u { text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+.ask-md mark, .ask-md .hl-hermes {
+  background: transparent; color: #E5651A; font-weight: 600;
+}
+.ask-md blockquote {
+  @apply border-l-2 border-accent/60 pl-3 py-1 my-1.5 text-[12.5px] text-text-secondary italic;
+}
+.ask-md blockquote p { margin: 0; line-height: 1.45; }
+.ask-md code {
+  @apply font-mono text-[12px] rounded px-1 py-0.5;
+  background: var(--surface-3);
+}
+
 /* Hide vertical scrollbar but keep scroll functionality */
 .scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-hidden::-webkit-scrollbar { width: 0; height: 0; display: none; }
