@@ -256,15 +256,16 @@ html {
    editor-only properties (outline-none min-h-full, contenteditable
    placeholders) that don't make sense in a static bubble. */
 .ask-md { @apply text-[15px] leading-snug text-text-primary font-sans; }
+/* Catch-all: the first/last block element in the bubble shouldn't have
+   external margin (otherwise the bubble's own padding is doubled). The
+   per-element overrides below fall back to this when the first child is
+   any element (ul, blockquote…), not just p/h1/h2/h3. */
+.ask-md > *:first-child { margin-top: 0 !important; }
+.ask-md > *:last-child { margin-bottom: 0 !important; }
 .ask-md p { @apply my-1; }
-.ask-md p:first-child { margin-top: 0; }
-.ask-md p:last-child { margin-bottom: 0; }
 .ask-md h1 { @apply text-2xl font-bold mt-5 mb-3 text-text-emphasis tracking-tight; }
-.ask-md h1:first-child { margin-top: 0; }
 .ask-md h2 { @apply text-lg font-semibold mt-4 mb-2 text-text-emphasis tracking-tight; }
-.ask-md h2:first-child { margin-top: 0; }
 .ask-md h3 { @apply text-base font-semibold mt-3 mb-1.5 text-text-primary; }
-.ask-md h3:first-child { margin-top: 0; }
 .ask-md ul { @apply pl-5 my-2 list-disc; }
 .ask-md li { @apply mb-1 leading-snug text-text-primary; }
 .ask-md li::marker { @apply text-accent; }
@@ -274,8 +275,12 @@ html {
 .ask-md mark, .ask-md .hl-hermes {
   background: transparent; color: #E5651A; font-weight: 600;
 }
+/* Lighter blockquote treatment than the editor — inside a chat bubble
+   the original `bg-surface-1 rounded-r-lg` made the quote a "card" that
+   visually fought the bubble. Just the orange-rouge left border and a
+   bit of padding is enough. */
 .ask-md blockquote {
-  @apply border-l-4 border-accent/60 pl-4 py-1.5 my-3 text-[13px] text-text-secondary italic bg-surface-1 rounded-r-lg;
+  @apply border-l-2 border-accent/60 pl-3 py-0.5 my-2 text-[13px] text-text-secondary italic;
 }
 .ask-md blockquote p { @apply my-0 leading-relaxed; }
 .ask-md code {

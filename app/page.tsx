@@ -48,11 +48,23 @@ const REMOTE_SYNC_DEBOUNCE_MS = 2500;
    Order matters: bold first (so its `**` aren't eaten by the italic pass),
    then italic, then highlight, then escape-restore.
 */
+// HTML-escape helper used everywhere we interpolate user-controlled text
+// into HTML/attribute contexts. Covers `& < > " '` so attributes can also
+// be safely double-quoted.
+function htmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function mdToHtml(md: string): string {
   const lines = md.split("\n");
   let html = "";
   let inUl = false;
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const esc = htmlEscape;
 
   // Image with optional |size suffix in alt: "alt|small" or "alt|large".
   const IMG_RE = /!\[([^\]]*?)\]\(([^)]+)\)/g;
@@ -73,17 +85,20 @@ function mdToHtml(md: string): string {
       .replace(/<br\s*\/?>/gi, brTag);
 
     // 2. Pull out images & file chips first (they contain `(` `)` etc.)
+    //    Both `src` and `name` get escape-quoted so a malicious markdown
+    //    URL containing `"` can't break out of the attribute and inject
+    //    arbitrary HTML.
     const placeholders: string[] = [];
     t = t.replace(IMG_RE, (_m, alt: string, src: string) => {
       const parts = alt.split("|");
       const realAlt = parts[0] || "";
       // Default small unless the markdown explicitly opted into "large".
       const size = parts[1] === "large" ? "large" : "small";
-      placeholders.push(`<img class="tiptap-img" data-size="${size}" src="${src}" alt="${esc(realAlt)}" />`);
+      placeholders.push(`<img class="tiptap-img" data-size="${size}" src="${esc(src)}" alt="${esc(realAlt)}" />`);
       return `\x00P${placeholders.length - 1}\x00`;
     });
     t = t.replace(FILE_RE, (_m, name: string, src: string) => {
-      placeholders.push(`<div data-type="file-attachment" name="${esc(name)}" src="${src}"></div>`);
+      placeholders.push(`<div data-type="file-attachment" name="${esc(name)}" src="${esc(src)}"></div>`);
       return `\x00P${placeholders.length - 1}\x00`;
     });
 
@@ -773,10 +788,19 @@ export default function Home() {
     const trans = transcript.trim();
 
     if (!includeImages) {
-      notes = notes.replace(/!\[.*?\]\(data:image\/.*?\)/g, "[Immagine saltata]");
+      // Match ANY image markdown — `![alt](url)` regardless of whether the
+      // URL is a data: blob, a Vercel Blob https URL, or anything else.
+      // The earlier filter only stripped data:image/… URLs and would have
+      // silently let blob-stored images through if/when we move off
+      // base64 embedding.
+      notes = notes.replace(/!\[[^\]]*\]\([^)]+\)/g, "[Immagine saltata]");
     }
     if (!includePdfs) {
-      notes = notes.replace(/\[📎 .*?\]\(data:application\/pdf.*?\)/g, "[Documento PDF saltato]");
+      // Match the file-attachment markdown emitted by Tiptap for PDFs:
+      //   `[📎 filename.pdf](url)`
+      // Same generalisation — the .pdf extension is in the visible label,
+      // so we match that rather than the URL scheme.
+      notes = notes.replace(/\[📎 [^\]]*\.pdf\]\([^)]+\)/gi, "[Documento PDF saltato]");
     }
 
     setIsEnhancing(true);
@@ -834,22 +858,32 @@ export default function Home() {
     e.target.value = "";
     if (files.length === 0) return;
 
+    // Reset any prior error so a stale "file X troppo grande" doesn't
+    // hang around if the user picks a fresh batch that's all valid.
+    setAppError(null);
+
     // Multi-file: prefix each transcribed block with `=== filename ===`
     // so the user can scroll through the transcript and tell pieces
     // apart. Single-file: skip the label (one block, label would be
     // visual noise).
     const multi = files.length > 1;
+    const oversize: string[] = [];
     for (const file of files) {
       if (file.size > 25 * 1024 * 1024) {
-        setAppError(
-          `Il file "${file.name}" pesa troppo (>${Math.round(file.size / 1024 / 1024)} MB). Limite Groq Whisper: 25 MB.`
-        );
+        oversize.push(`${file.name} (${Math.round(file.size / 1024 / 1024)} MB)`);
         continue;
       }
       const label = multi ? `=== ${file.name} ===` : undefined;
       // Sequential await so the transcript blocks land in user-picked
       // order. Parallel uploads would race and shuffle them.
       await importAudio(file, label);
+    }
+    // Surface ALL oversize-file errors at once instead of letting the
+    // last setAppError win in the loop.
+    if (oversize.length > 0) {
+      setAppError(
+        `File troppo grandi (>25 MB Groq Whisper limit): ${oversize.join(", ")}.`
+      );
     }
   };
 
@@ -924,7 +958,11 @@ export default function Home() {
     try {
       snapshot();
       const notesHtml = mdToHtml(notesRef.current?.getMarkdown() || "");
-      const titleSafe = (title || "Nota").replace(/[<>]/g, "");
+      // Full HTML-escape for the title — it lands in two places in the
+      // print iframe (`<title>…</title>` and `<h1>…</h1>`), and a stray
+      // `&` would corrupt the parser. The previous `.replace(/[<>]/g, "")`
+      // only handled angle brackets and let entities through unescaped.
+      const titleSafe = htmlEscape(title || "Nota");
       const created = new Date().toLocaleString("it-IT", {
         day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
       });
@@ -1023,6 +1061,13 @@ export default function Home() {
 
       const iframe = document.createElement("iframe");
       iframe.setAttribute("aria-hidden", "true");
+      // Sandboxed iframe — `allow-modals` lets the print dialog open,
+      // everything else stays blocked: no scripts, no navigation, no
+      // form submission, no plugins, opaque origin. Even if the
+      // rendered note HTML contained a stray <script>, it can't run,
+      // and a malicious markdown URL can't reach our IndexedDB or
+      // cookies because the iframe is treated as a different origin.
+      iframe.setAttribute("sandbox", "allow-modals");
       // Real (non-zero) dimensions positioned off-screen.
       // 0×0 + opacity:0 caused Safari and Chrome to skip layout/paint of
       // the iframe document, and `contentWindow.print()` then printed a

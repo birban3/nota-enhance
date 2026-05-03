@@ -207,7 +207,15 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        setAudioURL(URL.createObjectURL(blob));
+        // Same revoke-then-assign pattern as importAudio so successive
+        // recordings within one session don't accumulate blob: URLs in
+        // memory.
+        setAudioURL((prev) => {
+          if (prev && prev.startsWith("blob:")) {
+            try { URL.revokeObjectURL(prev); } catch {}
+          }
+          return URL.createObjectURL(blob);
+        });
         stream.getTracks().forEach((t) => t.stop());
         analyserRef.current = null;
         audioContext.close();
@@ -249,7 +257,16 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const importAudio = useCallback(async (file: File, label?: string) => {
     setImportedFileName(file.name);
-    setAudioURL(URL.createObjectURL(file));
+    // Revoke the previous object URL before assigning a new one — across
+    // a multi-file import this avoids accumulating MB-scale blob: URLs in
+    // memory until tab close. setAudioURL with the functional updater so
+    // we get the prior value in a render-safe way.
+    setAudioURL((prev) => {
+      if (prev && prev.startsWith("blob:")) {
+        try { URL.revokeObjectURL(prev); } catch {}
+      }
+      return URL.createObjectURL(file);
+    });
     setError(null);
     setIsTranscribingFile(true);
 

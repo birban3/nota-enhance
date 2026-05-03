@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, X, Search, Command, Pin, PinOff, LogOut } from "lucide-react";
+import { Plus, Trash2, X, Search, Pin, PinOff, LogOut } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ThemeToggle } from "./ThemeToggle";
@@ -255,9 +255,8 @@ export function NotesSidebar({
             className="press flex-1 flex items-center gap-2 h-9 px-3 rounded-lg bg-surface-2/50 hover:bg-surface-3/70 text-text-secondary hover:text-text-primary text-[12px] font-medium"
             title="Apri command palette"
           >
-            <Command size={12} />
+            <span className="font-mono text-text-faint">⌘+K</span>
             <span>Comandi</span>
-            <span className="ml-auto font-mono text-[10px] text-text-faint">⌘+K</span>
           </button>
           <button
             onClick={onLogout}
