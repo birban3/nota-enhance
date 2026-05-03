@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { del, get } from "@vercel/blob";
+import { del } from "@vercel/blob";
 
 // Groq Whisper — OpenAI-compatible, free tier generoso, veloce.
 // Get a key at https://console.groq.com/keys
@@ -50,25 +50,30 @@ async function handleBlobUrl(url: string, filename: string, contentType?: string
     throw new Error("URL Blob malformato (manca .public./.private.).");
   }
 
-  // Public blobs are anonymously fetchable; private blobs aren't — the
-  // platform needs the BLOB_READ_WRITE_TOKEN as Bearer auth, which the
-  // SDK's `get()` handles for us. Using `get()` for both keeps the code
-  // path uniform; for public blobs it's just an authenticated fetch.
-  let buf: ArrayBuffer;
-  let respContentType: string | null = null;
+  // Public blobs are anonymously fetchable; private blobs need the
+  // BLOB_READ_WRITE_TOKEN as Bearer auth. We do a plain fetch in both
+  // cases (rather than the SDK's `get()`) because:
+  //   - it's a single network primitive with predictable error shape
+  //   - `get()` returned a typed object that wrapped the response body
+  //     in ways that made debugging the recent .aac 500 harder than
+  //     necessary
+  //   - on Edge/Node both have global fetch — no extra deps
+  const fetchHeaders: Record<string, string> = {};
   if (isPrivate) {
-    const result = await get(url, { access: "private" });
-    if (!result || !result.stream) {
-      throw new Error("Blob privato non trovato o vuoto.");
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      throw new Error("BLOB_READ_WRITE_TOKEN mancante: impossibile leggere blob privati.");
     }
-    buf = await new Response(result.stream).arrayBuffer();
-    respContentType = result.blob.contentType;
-  } else {
-    const fetched = await fetch(url);
-    if (!fetched.ok) throw new Error(`Fetch del Blob fallito: ${fetched.status}`);
-    buf = await fetched.arrayBuffer();
-    respContentType = fetched.headers.get("content-type");
+    fetchHeaders.authorization = `Bearer ${token}`;
   }
+  const fetched = await fetch(url, { headers: fetchHeaders });
+  if (!fetched.ok) {
+    throw new Error(
+      `Fetch del Blob fallito: ${fetched.status} ${fetched.statusText} (${isPrivate ? "private" : "public"})`
+    );
+  }
+  const buf = await fetched.arrayBuffer();
+  const respContentType = fetched.headers.get("content-type");
   const file = new File([buf], filename || "audio.webm", {
     type: contentType || respContentType || "audio/webm",
   });
@@ -134,7 +139,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ text });
   } catch (err: unknown) {
     console.error("Transcribe API error:", err);
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // OpenAI SDK errors carry a `status` and frequently a structured
+    // `error.message` that's much more actionable than the SDK's
+    // top-level `message`. Pass both back to the client so the toast
+    // shows e.g. "Invalid file format. Please upload mp3/m4a/wav/…"
+    // instead of a generic 500.
+    const e = err as {
+      status?: number;
+      message?: string;
+      error?: { message?: string };
+      response?: { status?: number };
+    };
+    const status =
+      typeof e.status === "number" ? e.status :
+      typeof e.response?.status === "number" ? e.response.status :
+      500;
+    const innerMsg = e.error?.message || e.message;
+    let message = innerMsg || "Unknown transcribe error";
+    // Whisper's "invalid file format" replies are usually a 400 — annotate
+    // so the user knows it's not our server falling over.
+    if (status === 400 && /format|invalid|decode|codec/i.test(message)) {
+      message = `Whisper non può decodificare questo file: ${message}. Formati supportati: mp3, m4a, mp4, mpeg, mpga, oga, ogg, wav, webm, flac.`;
+    }
+    return NextResponse.json({ error: message }, { status: status >= 400 && status < 600 ? status : 500 });
   }
 }

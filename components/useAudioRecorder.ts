@@ -23,6 +23,7 @@ import { useState, useRef, useCallback } from "react";
 async function uploadAndTranscribe(file: File): Promise<string> {
   // ── Path A: Blob client upload, then handoff URL to /api/transcribe ──
   let blobError: unknown = null;
+  let uploadSucceeded = false;
   try {
     const { upload } = await import("@vercel/blob/client");
     // The store on Vercel is configured with `private` access. The client
@@ -35,6 +36,7 @@ async function uploadAndTranscribe(file: File): Promise<string> {
       handleUploadUrl: "/api/blob/upload-token",
       contentType: file.type || "audio/webm",
     });
+    uploadSucceeded = true;
     const res = await fetch("/api/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,11 +46,24 @@ async function uploadAndTranscribe(file: File): Promise<string> {
         contentType: file.type || "audio/webm",
       }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Errore trascrizione");
-    return ((data.text as string) || "").trim();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(
+        (data as { error?: string }).error ||
+        `Errore trascrizione (HTTP ${res.status})`
+      );
+    }
+    return (((data as { text?: string }).text) || "").trim();
   } catch (err) {
     blobError = err;
+    if (uploadSucceeded) {
+      // The Blob upload itself worked; the failure is in transcribe (e.g.
+      // Whisper rejecting the codec). The FormData fallback hits the same
+      // Whisper endpoint with the same content, so it can't help — and
+      // for >4.5 MB it would just 413 with a misleading message. Surface
+      // the real error directly.
+      throw err;
+    }
     console.warn("Blob upload failed, falling back to FormData:", err);
   }
 
