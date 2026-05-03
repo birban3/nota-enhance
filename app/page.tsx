@@ -829,16 +829,28 @@ export default function Home() {
   }, [transcript]);
 
   const handleImportClick = () => fileInputRef.current?.click();
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 25 * 1024 * 1024) {
-        setAppError("Il file audio pesa troppo. Il limite massimo supportato da Groq è di 25 MB.");
-      } else {
-        importAudio(file);
-      }
-    }
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
     e.target.value = "";
+    if (files.length === 0) return;
+
+    // Multi-file: prefix each transcribed block with `=== filename ===`
+    // so the user can scroll through the transcript and tell pieces
+    // apart. Single-file: skip the label (one block, label would be
+    // visual noise).
+    const multi = files.length > 1;
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) {
+        setAppError(
+          `Il file "${file.name}" pesa troppo (>${Math.round(file.size / 1024 / 1024)} MB). Limite Groq Whisper: 25 MB.`
+        );
+        continue;
+      }
+      const label = multi ? `=== ${file.name} ===` : undefined;
+      // Sequential await so the transcript blocks land in user-picked
+      // order. Parallel uploads would race and shuffle them.
+      await importAudio(file, label);
+    }
   };
 
   const handleStartRec = async () => { await startRecording(); };
@@ -922,22 +934,81 @@ export default function Home() {
         return;
       }
 
-      // Pull all currently-loaded stylesheets so the print iframe matches what
-      // the user sees (Tiptap + Tailwind tokens). Cross-origin sheets throw on
-      // cssRules access — silently skip those.
-      const styles = Array.from(document.styleSheets)
-        .map((sheet) => {
-          try {
-            return Array.from(sheet.cssRules || []).map((r) => r.cssText).join("\n");
-          } catch {
-            return "";
-          }
-        })
-        .join("\n");
-
-      // Cancel the global UI zoom inside the print frame so the PDF renders at
-      // 1:1 (no 1.15× viewport zoom baked in).
-      const resetZoom = `html, body { zoom: 1 !important; }`;
+      // Self-contained CSS. We tried extracting `document.styleSheets` from
+      // the parent page so the print iframe inherited Tiptap + Tailwind
+      // styling automatically — but that pulled in problematic globals
+      // (mobile @media `html, body { overflow:hidden; height:100dvh }`,
+      // the 1.15× zoom, theme transitions) that interacted badly with the
+      // print layer and produced blank pages on mobile. Inline only what
+      // we actually need to render the document at A4.
+      const printCss = `
+        * { box-sizing: border-box; }
+        html, body {
+          margin: 0; padding: 0;
+          background: #ffffff; color: #1c1917;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        @page { size: A4; margin: 18mm; }
+        .pdf-export-root {
+          font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+          color: #1c1917;
+          background: #ffffff;
+          padding: 0;
+          line-height: 1.5;
+          font-size: 13.5px;
+        }
+        .pdf-export-root h1 { font-size: 26px; font-weight: 700; margin: 0 0 18px; letter-spacing: -0.02em; }
+        .pdf-export-root h2 { font-size: 18px; font-weight: 600; margin: 22px 0 8px; letter-spacing: -0.01em; }
+        .pdf-export-root h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+        .pdf-export-root p { margin: 6px 0; }
+        .pdf-export-root ul { padding-left: 20px; margin: 8px 0; list-style: disc; }
+        .pdf-export-root li { margin: 3px 0; }
+        .pdf-export-root strong { font-weight: 600; color: #0c0a09; }
+        .pdf-export-root em { font-style: italic; }
+        .pdf-export-root u { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+        .pdf-export-root mark, .pdf-export-root .hl-hermes {
+          background: transparent; color: #A84309; font-weight: 600;
+        }
+        .pdf-export-root blockquote {
+          border-left: 2px solid rgba(168, 67, 9, 0.45);
+          padding-left: 12px; margin: 8px 0; font-style: italic;
+          color: #44403c; font-size: 12.5px;
+        }
+        .pdf-export-root img,
+        .pdf-export-root img[data-size],
+        .pdf-export-root img[data-size="large"],
+        .pdf-export-root img[data-size="small"] {
+          max-width: 220px !important;
+          height: auto;
+          display: block;
+          margin: 10px 0;
+          border-radius: 6px;
+        }
+        .pdf-export-root .pdf-meta {
+          font-family: "IBM Plex Mono", ui-monospace, monospace;
+          font-size: 10.5px;
+          color: #78716c;
+          margin-bottom: 18px;
+          letter-spacing: 0.04em;
+        }
+        .pdf-export-root .pdf-section-label {
+          font-family: "IBM Plex Mono", ui-monospace, monospace;
+          font-size: 9.5px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.18em;
+          color: #A84309;
+          margin: 28px 0 10px;
+          border-bottom: 1px solid rgba(0,0,0,0.08);
+          padding-bottom: 4px;
+        }
+        .pdf-export-root .file-chip {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 6px 10px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px;
+          font-size: 11.5px; color: #1c1917; text-decoration: none;
+        }
+      `;
 
       const body = `
         <div class="pdf-export-root">
@@ -948,7 +1019,7 @@ export default function Home() {
         </div>
       `;
 
-      const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${titleSafe}</title><style>${styles}\n${resetZoom}</style></head><body data-theme="light">${body}</body></html>`;
+      const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${titleSafe}</title><style>${printCss}</style></head><body>${body}</body></html>`;
 
       const iframe = document.createElement("iframe");
       iframe.setAttribute("aria-hidden", "true");
@@ -1445,6 +1516,7 @@ export default function Home() {
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept="audio/*,.mp3,.m4a,.aac,.wav,.webm,.ogg,.opus,.flac"
             onChange={handleFileChange}
             className="hidden"
@@ -1463,7 +1535,6 @@ export default function Home() {
         onDelete={handleDeleteNote}
         onTogglePin={handleTogglePin}
         onOpenCommandPalette={() => setPaletteOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
         onLogout={handleLogout}
         username={username}
         onMouseEnter={handleSidebarHoverEnter}

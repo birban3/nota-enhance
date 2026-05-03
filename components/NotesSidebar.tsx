@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, X, Search, Command, Settings, Pin, PinOff, LogOut } from "lucide-react";
+import { Plus, Trash2, X, Search, Command, Pin, PinOff, LogOut } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ThemeToggle } from "./ThemeToggle";
@@ -34,7 +34,6 @@ interface Props {
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
   onOpenCommandPalette: () => void;
-  onOpenSettings: () => void;
   onLogout: () => void;
   username?: string | null;
   onMouseEnter?: () => void;
@@ -66,7 +65,7 @@ function snippet(notesMd: string): string {
 }
 
 export function NotesSidebar({
-  notes, activeId, open, onClose, onSelect, onCreate, onDelete, onTogglePin, onOpenCommandPalette, onOpenSettings, onLogout, username, onMouseEnter, onMouseLeave,
+  notes, activeId, open, onClose, onSelect, onCreate, onDelete, onTogglePin, onOpenCommandPalette, onLogout, username, onMouseEnter, onMouseLeave,
 }: Props) {
   // Pinned first (within each group: most recent createdAt on top).
   const sorted = [...notes].sort((a, b) => {
@@ -246,7 +245,10 @@ export function NotesSidebar({
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer — Comandi pill (with explicit ⌘+K hint), logout, theme.
+            The gear that opened the shortcuts modal lived here too but
+            we removed it: settings stay reachable via the command palette
+            entry "Scorciatoie & impostazioni" and the keyboard shortcut. */}
         <div className="px-3 py-3 border-t border-[var(--material-border)] flex items-center gap-2">
           <button
             onClick={() => { onClose(); onOpenCommandPalette(); }}
@@ -255,14 +257,7 @@ export function NotesSidebar({
           >
             <Command size={12} />
             <span>Comandi</span>
-            <span className="ml-auto font-mono text-[10px] text-text-faint">⌘K</span>
-          </button>
-          <button
-            onClick={() => { onClose(); onOpenSettings(); }}
-            title="Scorciatoie & impostazioni"
-            className="press w-9 h-9 flex items-center justify-center rounded-lg bg-surface-2/50 hover:bg-surface-3/70 text-text-secondary hover:text-text-primary"
-          >
-            <Settings size={14} />
+            <span className="ml-auto font-mono text-[10px] text-text-faint">⌘+K</span>
           </button>
           <button
             onClick={onLogout}

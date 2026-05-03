@@ -116,7 +116,7 @@ export function CommandPalette({
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[8vh] sm:pt-[20vh] px-3 sm:px-4 pt-safe">
+        <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[8vh] md:pt-[20vh] px-3 md:px-4 pt-safe">
           <motion.div
             className="absolute inset-0 bg-black/40"
             onClick={onClose}
@@ -142,11 +142,11 @@ export function CommandPalette({
             placeholder="Cerca un comando o una nota…"
             className="flex-1 bg-transparent border-none outline-none text-[15px] text-text-primary placeholder:text-text-faint"
           />
-          <span className="hidden sm:inline font-mono text-[10px] text-text-faint border border-[var(--material-border)] rounded px-1.5 py-0.5">ESC</span>
+          <span className="hidden md:inline font-mono text-[10px] text-text-faint border border-[var(--material-border)] rounded px-1.5 py-0.5">ESC</span>
         </div>
 
         {/* List */}
-        <div className="max-h-[60vh] sm:max-h-[50vh] overflow-y-auto py-2">
+        <div className="max-h-[60vh] md:max-h-[50vh] overflow-y-auto py-2">
           {filtered.length === 0 ? (
             <div className="px-4 py-8 text-center text-text-faint text-sm">Nessun risultato</div>
           ) : (
@@ -163,7 +163,7 @@ export function CommandPalette({
                       key={c.id}
                       onMouseEnter={() => setHighlight(idx)}
                       onClick={() => { c.action(); onClose(); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 sm:py-2.5 text-left transition-colors ${
+                      className={`w-full flex items-center gap-3 px-4 py-3 md:py-2.5 text-left transition-colors ${
                         isActive ? "bg-surface-3/80" : "hover:bg-surface-2/40"
                       }`}
                     >
@@ -182,7 +182,7 @@ export function CommandPalette({
           )}
         </div>
 
-            <div className="hidden sm:flex px-4 py-2 border-t border-[var(--material-border)] items-center gap-3 text-[10px] text-text-faint font-mono">
+            <div className="hidden md:flex px-4 py-2 border-t border-[var(--material-border)] items-center gap-3 text-[10px] text-text-faint font-mono">
               <span>↑↓ naviga</span>
               <span>↵ apri</span>
               <span className="ml-auto">⌘K togli</span>

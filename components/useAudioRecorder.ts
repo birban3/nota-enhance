@@ -114,7 +114,7 @@ interface UseAudioRecorderReturn {
   stopRecording: () => void;
   error: string | null;
   clearError: () => void;
-  importAudio: (file: File) => Promise<void>;
+  importAudio: (file: File, label?: string) => Promise<void>;
   importedFileName: string | null;
   isTranscribingFile: boolean;
   /** True while a just-finished recording is being uploaded to /api/transcribe. */
@@ -247,7 +247,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setIsRecording(false);
   }, []);
 
-  const importAudio = useCallback(async (file: File) => {
+  const importAudio = useCallback(async (file: File, label?: string) => {
     setImportedFileName(file.name);
     setAudioURL(URL.createObjectURL(file));
     setError(null);
@@ -256,7 +256,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     try {
       const text = await uploadAndTranscribe(file);
       if (text) {
-        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + text : text));
+        // When the caller passes a label (multi-file import flow), prepend
+        // it as a divider so the transcript stays navigable. Single-file
+        // imports leave it off — the existing UX of one transcript per
+        // import doesn't need a header.
+        const block = label ? `${label}\n${text}` : text;
+        setTranscript((prev) => (prev ? prev.trim() + "\n\n" + block : block));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore trascrizione";

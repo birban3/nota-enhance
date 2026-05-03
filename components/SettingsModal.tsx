@@ -51,7 +51,7 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center sm:px-4">
+        <div className="fixed inset-0 z-[65] flex items-end md:items-center justify-center md:px-4">
           <motion.div
             className="absolute inset-0 bg-black/50"
             onClick={onClose}
@@ -61,20 +61,20 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           />
           <motion.div
-            className="relative w-full max-w-lg max-h-[92vh] sm:max-h-none rounded-t-2xl sm:rounded-2xl material-thick shadow-float sm:border overflow-hidden flex flex-col pb-safe"
+            className="relative w-full max-w-lg max-h-[92vh] md:max-h-none rounded-t-2xl md:rounded-2xl material-thick shadow-float md:border overflow-hidden flex flex-col pb-safe"
             initial={{ opacity: 0, scale: 0.94, y: -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
           >
             {/* Header */}
-            <div className="px-4 sm:px-5 h-14 border-b border-[var(--material-border)] flex items-center gap-3 shrink-0">
+            <div className="px-4 md:px-5 h-14 border-b border-[var(--material-border)] flex items-center gap-3 shrink-0">
               <Keyboard size={16} className="text-text-muted" />
               <span className="text-[14px] font-semibold text-text-emphasis tracking-tight">
                 Scorciatoie da tastiera
               </span>
               <div className="flex-1" />
-              <button onClick={onClose} className="press w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary">
+              <button onClick={onClose} className="press w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary">
                 <X size={16} />
               </button>
             </div>
