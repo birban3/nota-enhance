@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { getVal, setVal } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
+import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
   FileDown, MessageCircle, Send, Search,
@@ -38,113 +39,9 @@ const DEFAULT_SPLIT = 0.5;
 // devices feels live.
 const REMOTE_SYNC_DEBOUNCE_MS = 2500;
 
-/* ── Markdown → HTML (tolerant of inline tags emitted by Tiptap serializer) ──
-   The Tiptap → markdown serializer emits raw <u>...</u> for underline and ==..==
-   for highlight (Tiptap doesn't have a canonical markdown form for these). The
-   reverse path therefore has to:
-     1. preserve those inline tags through HTML escaping
-     2. re-process bold (**), italic (*), highlight (==), and the inline-tag
-        placeholders into proper HTML
-   Order matters: bold first (so its `**` aren't eaten by the italic pass),
-   then italic, then highlight, then escape-restore.
-*/
-// HTML-escape helper used everywhere we interpolate user-controlled text
-// into HTML/attribute contexts. Covers `& < > " '` so attributes can also
-// be safely double-quoted.
-function htmlEscape(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function mdToHtml(md: string): string {
-  const lines = md.split("\n");
-  let html = "";
-  let inUl = false;
-  const esc = htmlEscape;
-
-  // Image with optional |size suffix in alt: "alt|small" or "alt|large".
-  const IMG_RE = /!\[([^\]]*?)\]\(([^)]+)\)/g;
-  // File chip
-  const FILE_RE = /\[📎 ([^\]]*)\]\(([^)]+)\)/g;
-
-  const inline = (s: string) => {
-    // 1. Replace <u>..</u> and <br> with placeholders so HTML escape
-    //    doesn't kill them. <br> comes from Tiptap hardBreak round-trip
-    //    (Shift+Enter inside a paragraph) — without this it'd come out
-    //    as literal "&lt;br&gt;" text instead of a line break.
-    const uOpen = "\x00U_OPEN\x00";
-    const uClose = "\x00U_CLOSE\x00";
-    const brTag = "\x00BR\x00";
-    let t = s
-      .replace(/<u>/g, uOpen)
-      .replace(/<\/u>/g, uClose)
-      .replace(/<br\s*\/?>/gi, brTag);
-
-    // 2. Pull out images & file chips first (they contain `(` `)` etc.)
-    //    Both `src` and `name` get escape-quoted so a malicious markdown
-    //    URL containing `"` can't break out of the attribute and inject
-    //    arbitrary HTML.
-    const placeholders: string[] = [];
-    t = t.replace(IMG_RE, (_m, alt: string, src: string) => {
-      const parts = alt.split("|");
-      const realAlt = parts[0] || "";
-      // Default small unless the markdown explicitly opted into "large".
-      const size = parts[1] === "large" ? "large" : "small";
-      placeholders.push(`<img class="tiptap-img" data-size="${size}" src="${esc(src)}" alt="${esc(realAlt)}" />`);
-      return `\x00P${placeholders.length - 1}\x00`;
-    });
-    t = t.replace(FILE_RE, (_m, name: string, src: string) => {
-      placeholders.push(`<div data-type="file-attachment" name="${esc(name)}" src="${esc(src)}"></div>`);
-      return `\x00P${placeholders.length - 1}\x00`;
-    });
-
-    // 3. HTML-escape the rest.
-    t = esc(t);
-
-    // 4. Restore underline + hard-break placeholders.
-    t = t.split(uOpen).join("<u>").split(uClose).join("</u>").split(brTag).join("<br>");
-
-    // 5. Bold first (eats its own `**`), then italic, then highlight.
-    t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    t = t.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>");
-    t = t.replace(/==(.+?)==/g, '<mark class="hl-hermes">$1</mark>');
-
-    // 6. Drop placeholders back in.
-    t = t.replace(/\x00P(\d+)\x00/g, (_m, i) => placeholders[Number(i)]);
-    return t;
-  };
-
-  // Lines that are just an image or just a file-chip should NOT be wrapped in
-  // a <p> — Tiptap treats <image> and <fileAttachment> as block nodes, and
-  // wrapping them in a paragraph stacks paragraph-margin on top of the
-  // node-margin (made the gap between two consecutive images grow on every
-  // refresh). Detect "pure block" lines and emit them raw.
-  const PURE_IMG_RE = /^!\[[^\]]*\]\([^)]+\)$/;
-  const PURE_FILE_RE = /^\[📎 [^\]]*\]\([^)]+\)$/;
-
-  for (const line of lines) {
-    const t = line.trim();
-    if (/^[-*] /.test(t)) {
-      if (!inUl) { html += "<ul>"; inUl = true; }
-      html += `<li><p>${inline(t.slice(2))}</p></li>`;
-    } else {
-      if (inUl) { html += "</ul>"; inUl = false; }
-      if (t.startsWith("> ")) html += `<blockquote><p>${inline(t.slice(2))}</p></blockquote>`;
-      else if (t.startsWith("### ")) html += `<h3>${inline(t.slice(4))}</h3>`;
-      else if (t.startsWith("## ")) html += `<h2>${inline(t.slice(3))}</h2>`;
-      else if (t.startsWith("# ")) html += `<h1>${inline(t.slice(2))}</h1>`;
-      else if (PURE_IMG_RE.test(t) || PURE_FILE_RE.test(t)) html += inline(t);
-      else if (t === "") html += `<p></p>`;
-      else html += `<p>${inline(t)}</p>`;
-    }
-  }
-  if (inUl) html += "</ul>";
-  return html;
-}
+// mdToHtml + htmlEscape moved to lib/markdown.ts (imported above).
+// Pure string transforms with no React dependency, reused from the
+// editors, the Ask AI bubbles and the PDF iframe.
 
 function formatTime(s: number): string {
   return `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
@@ -218,6 +115,11 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Multi-file import progress: shown in the header in place of the
+  // per-file "Trascrivo file…" pill so the user sees "2/5: file.aac"
+  // instead of a flickering single-file spinner that resets each loop.
+  // null = not in a batch (single-file path uses the existing pill).
+  const [importBatch, setImportBatch] = useState<{ current: number; total: number; name: string } | null>(null);
   // Mobile-only: which pane is visible. Below the md breakpoint the two
   // editors stack into a tab switcher (single pane on screen at a time) since
   // the side-by-side split + draggable divider is unusable at < 768px wide.
@@ -327,23 +229,50 @@ export default function Home() {
   }, []);
 
   // ════════════════ Persistence layer (bulletproof) ════════════════
-  // Design principles:
-  //   1. There is exactly ONE source of truth on disk: IndexedDB key
-  //      `nota-enhance-archive`. Everything must end up there fast.
-  //   2. Writes are direct: the moment we know the user edited something we
-  //      build the latest archive and call setVal() right away — without
-  //      waiting for a React render cycle. Speeding this up (vs the old
-  //      "setArchive → useEffect → setVal" chain) closes the unload-before-
-  //      commit window that bit us before.
-  //   3. Multiple triggers: editor onUpdate, title/transcript/etc state
-  //      changes, askMessages changes, autosave interval, beforeunload,
-  //      pagehide, visibilitychange — every one of them ends up calling
-  //      `persistNow()`. Redundant by design.
-  //   4. No-op detection: persistNow compares against the last saved blob
-  //      and skips IDB if identical. Cheap, avoids infinite write loops.
-  //   5. Microtask scheduling: edit handlers schedule a flush on the next
-  //      microtask (queueMicrotask) instead of debouncing 500ms — so even a
-  //      reload one frame after typing catches the data in flight.
+  //
+  // Five overlapping mechanisms keep the active note safe across unloads,
+  // each layered on top of the previous one so a failure in any single
+  // path is caught by the next. In rough order of "who fires first":
+  //
+  //   1. Editor onUpdate (Tiptap)
+  //        Editor.onUpdate → handleEditorChange → scheduleFlush
+  //        scheduleFlush queues a microtask that calls snapshot().
+  //        Reaches IDB within ~0ms of the keystroke (not 500ms debounce
+  //        like the old version).
+  //
+  //   2. Belt-and-suspenders useEffect on tracked React state
+  //        Whenever title / titleManual / transcript / enhancedHtml /
+  //        splitRatio / askMessages changes, snapshot() runs in the
+  //        commit phase. Catches state writes the editor onUpdate
+  //        doesn't see (title input, drawer toggle, …).
+  //
+  //   3. Steady-state autosave (setInterval 1s)
+  //        Final guard for edits that for any reason didn't fire
+  //        onUpdate (paste from formatted source, command-driven
+  //        edits the extension didn't decorate, …). Cheap because
+  //        persistNow no-ops on identical state.
+  //
+  //   4. Page-leave signals (beforeunload, pagehide, visibilitychange)
+  //        flushNow() runs persistNow synchronously before the page
+  //        unloads. Modern browsers keep the IDB transaction alive
+  //        across unload long enough to commit.
+  //
+  //   5. Cross-device sync (separate layer below)
+  //        Pushes IDB content to the server via /api/notes/sync,
+  //        merges remote, writes back. Independent of local IDB.
+  //
+  // Invariants:
+  //   • IndexedDB key `nota-enhance-archive` is the single source of
+  //     truth on disk (localStorage migration happens once on first
+  //     hydrate; never written again).
+  //   • persistNow() compares against `lastPersistedRef` (last serialised
+  //     state) and skips IDB on identical content — no infinite write
+  //     loops, no thrashing.
+  //   • buildLatestArchive() reads from notesRef.current?.getMarkdown()
+  //     so it captures in-flight typing the React state hasn't seen yet.
+  //     Treats `undefined` (editor not mounted) as "preserve existing
+  //     archive notes" — without this distinction, fast reloads were
+  //     wiping the note body while the editor was still booting.
 
   // The latest persisted archive blob, kept as a ref so persistNow doesn't
   // need to live inside React's dependency graph.
@@ -496,6 +425,15 @@ export default function Home() {
   // round-trip while still allowing visibility/focus PULL syncs through
   // (those carry isPull and bypass the check, see below).
   const lastSyncedSignatureRef = useRef<string>("");
+  // When a sync is in flight and a new trigger arrives (typing, focus
+  // event, …), we used to silently drop it — the user's most recent
+  // edits would only get pushed on the *next* idle trigger. Now we set
+  // this flag, and the in-flight sync re-runs once on completion if
+  // it's set. Bounded to a single re-run because each re-run only fires
+  // once: any further triggers during the second run set the flag again,
+  // and so on. Worst case: bounded back-to-back syncs while edits keep
+  // coming, no infinite loop.
+  const pendingSyncRef = useRef<{ isInitial?: boolean; isPull?: boolean } | null>(null);
 
   const tombstonesRef = useRef(tombstones);
   useEffect(() => { tombstonesRef.current = tombstones; }, [tombstones]);
@@ -504,7 +442,17 @@ export default function Home() {
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   const syncWithServer = useCallback(async (opts: { isInitial?: boolean; isPull?: boolean } = {}) => {
-    if (syncInFlightRef.current) return;
+    if (syncInFlightRef.current) {
+      // Remember the most-aggressive caller. If any caller wants a pull
+      // (focus / visibility), we'll pull on re-run; otherwise we'll do a
+      // regular auto-trigger sync. isInitial only on first ever, can't
+      // be re-fired here so we don't track it.
+      const cur = pendingSyncRef.current;
+      pendingSyncRef.current = {
+        isPull: !!(cur?.isPull || opts.isPull),
+      };
+      return;
+    }
     if (!hydrated) return;
 
     // Build the freshest payload the same way persistNow does — by reading
@@ -642,6 +590,17 @@ export default function Home() {
       console.warn("notes/sync error", err);
     } finally {
       syncInFlightRef.current = false;
+      // If a trigger arrived while we were in flight, run once more so
+      // the user's latest edits / a remote update don't have to wait
+      // for the next idle moment.
+      const pending = pendingSyncRef.current;
+      if (pending) {
+        pendingSyncRef.current = null;
+        // Schedule asynchronously to release the call stack first.
+        queueMicrotask(() => {
+          void syncWithServer(pending);
+        });
+      }
     }
     // setTranscript is exported by the audio hook and stable; the editor
     // refs are mutable refs, also stable.
@@ -868,15 +827,31 @@ export default function Home() {
     // visual noise).
     const multi = files.length > 1;
     const oversize: string[] = [];
-    for (const file of files) {
-      if (file.size > 25 * 1024 * 1024) {
-        oversize.push(`${file.name} (${Math.round(file.size / 1024 / 1024)} MB)`);
-        continue;
+    // Filter to valid files first so the batch counter reflects work
+    // we'll actually do, not files we'll reject.
+    const valid = files.filter((f) => {
+      if (f.size > 25 * 1024 * 1024) {
+        oversize.push(`${f.name} (${Math.round(f.size / 1024 / 1024)} MB)`);
+        return false;
       }
-      const label = multi ? `=== ${file.name} ===` : undefined;
-      // Sequential await so the transcript blocks land in user-picked
-      // order. Parallel uploads would race and shuffle them.
-      await importAudio(file, label);
+      return true;
+    });
+    try {
+      for (let i = 0; i < valid.length; i++) {
+        const file = valid[i];
+        // For multi-file batches, replace the per-file flickering pill
+        // with a steady "i+1/total: filename" indicator. Single-file
+        // imports leave importBatch null and keep the existing pill.
+        if (multi) {
+          setImportBatch({ current: i + 1, total: valid.length, name: file.name });
+        }
+        const label = multi ? `=== ${file.name} ===` : undefined;
+        // Sequential await so the transcript blocks land in user-picked
+        // order. Parallel uploads would race and shuffle them.
+        await importAudio(file, label);
+      }
+    } finally {
+      setImportBatch(null);
     }
     // Surface ALL oversize-file errors at once instead of letting the
     // last setAppError win in the loop.
@@ -1224,11 +1199,24 @@ export default function Home() {
               <span className="text-[11px] font-medium sm:hidden">Trascrivo…</span>
             </div>
           )}
-          {isTranscribingFile && (
+          {/* Single-file pill: hidden during a multi-file batch so the
+              steadier batch indicator below doesn't flicker against it. */}
+          {isTranscribingFile && !importBatch && (
             <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
               <Loader2 size={11} className="animate-spin-fast" />
               <span className="text-[11px] font-medium hidden sm:inline">Trascrivo file…</span>
               <span className="text-[11px] font-medium sm:hidden">File…</span>
+            </div>
+          )}
+          {importBatch && (
+            <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
+              <Loader2 size={11} className="animate-spin-fast" />
+              <span className="text-[11px] font-medium tabular-nums">
+                {importBatch.current}/{importBatch.total}
+              </span>
+              <span className="hidden sm:inline text-[11px] text-accent/80 truncate max-w-[180px]">
+                {importBatch.name}
+              </span>
             </div>
           )}
 

@@ -7,9 +7,13 @@
 //          whatever is on the server (per-note last-write-wins, tombstones
 //          win over older edits), writes the merged result, returns it.
 //
-// Auth: middleware enforces the JWT cookie before we ever get here. The
-// app is single-user so we don't carry username into the storage key — the
-// archive is a single shared blob.
+// Auth: middleware already enforces the JWT cookie before we ever get
+// here, but we ALSO verify the cookie inside the handler as defence in
+// depth — if a future middleware refactor or a public-paths regression
+// accidentally exposed this route, the archive (potentially containing
+// private notes / images / API call history) would not become world-
+// readable. Single-user model means we don't scope storage by username,
+// only gate access on a valid session.
 
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -19,13 +23,24 @@ import {
   type RemoteShape,
   type ArchivedNoteServer,
 } from "@/lib/notes-store";
+import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const EMPTY: RemoteShape = { archive: [], tombstones: {}, serverUpdatedAt: 0 };
 
-export async function GET() {
+async function isAuthed(req: NextRequest): Promise<boolean> {
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return false;
+  const username = await verifySessionToken(token);
+  return !!username;
+}
+
+export async function GET(req: NextRequest) {
+  if (!(await isAuthed(req))) {
+    return NextResponse.json({ error: "Non autenticato." }, { status: 401 });
+  }
   try {
     const remote = (await getRemoteArchive()) ?? EMPTY;
     return NextResponse.json(remote);
@@ -39,6 +54,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await isAuthed(req))) {
+    return NextResponse.json({ error: "Non autenticato." }, { status: 401 });
+  }
   let body: { archive?: unknown; tombstones?: unknown };
   try {
     body = await req.json();
