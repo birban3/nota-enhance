@@ -165,7 +165,8 @@ export default function Home() {
   const {
     isRecording, recordTime, audioURL, transcript, setTranscript,
     startRecording, stopRecording, error: recError, clearError,
-    importAudio, importedFileName, isTranscribingFile, isTranscribingRecording, getAnalyser,
+    importAudio, importedFileName, isTranscribingFile, isTranscribingRecording,
+    transcribeChunkProgress, getAnalyser,
   } = useAudioRecorder();
 
   const displayError = appError || recError;
@@ -441,6 +442,20 @@ export default function Home() {
   const activeIdRef = useRef(activeId);
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
+  // The latest archive in React state, including any mutations (pin toggle,
+  // new note creation, …) that happened *during* an in-flight sync. The sync
+  // reconciliation below uses this rather than the `liveArchive` snapshot
+  // captured at sync start: that snapshot is stale by the time the response
+  // arrives and using it silently dropped:
+  //   • pins clicked while a sync was in flight (race wiped the new
+  //     `pinned: true` because the server's mergedArchive was based on the
+  //     old payload), and
+  //   • notes created via "+" right after another change (the in-flight
+  //     sync's response had no record of them, so the "active note
+  //     disappeared" branch switched away → the new note vanished).
+  const archiveRef = useRef(archive);
+  useEffect(() => { archiveRef.current = archive; }, [archive]);
+
   const syncWithServer = useCallback(async (opts: { isInitial?: boolean; isPull?: boolean } = {}) => {
     if (syncInFlightRef.current) {
       // Remember the most-aggressive caller. If any caller wants a pull
@@ -506,32 +521,78 @@ export default function Home() {
       void setVal(TOMBSTONES_KEY, merged.tombstones || {});
 
       const mergedArchive = Array.isArray(merged.archive) ? merged.archive : [];
+      const mergedTombstones = merged.tombstones || {};
       const curActive = activeIdRef.current;
-      // Use liveArchive (built from editor markdown above) — that's the
-      // freshest local copy of the active note, ahead of React state if
-      // the user is mid-keystroke.
-      const localActive = curActive
-        ? liveArchive.find((n) => n.id === curActive)
+      // `archiveRef.current` is the freshest local archive — it includes any
+      // pin toggles or new notes the user added *while this sync was in
+      // flight*. Use it (rather than the `liveArchive` snapshot we built at
+      // sync start) so those mutations aren't silently overwritten by the
+      // server's older view of the world.
+      const latestLocal = archiveRef.current;
+      const latestLocalActive = curActive
+        ? latestLocal.find((n) => n.id === curActive)
         : null;
+      const localActive = latestLocalActive
+        ?? (curActive ? liveArchive.find((n) => n.id === curActive) : null)
+        ?? null;
       const remoteActive = curActive
         ? mergedArchive.find((n) => n.id === curActive)
         : null;
 
-      // Decision: replace the entire archive, but on regular (non-initial)
-      // syncs swap the active note's entry back to the local version so the
-      // user's in-flight typing survives. The active note will be pushed on
-      // the next sync, making it eventually consistent.
-      let nextArchive = mergedArchive;
-      if (!opts.isInitial && localActive && remoteActive) {
-        nextArchive = mergedArchive.map((n) =>
-          n.id === curActive ? localActive : n
-        );
+      // Step 1: start with the merged archive, but restore any local-only
+      // notes the server hasn't seen yet (i.e. created mid-sync). Without
+      // this, hitting "+" while a sync was in flight made the new note
+      // disappear when the response arrived: the server returned its older
+      // archive, the active id wasn't in it, and the "active note
+      // disappeared" branch below silently switched away. Only restore
+      // notes that aren't tombstoned in the merged result.
+      const mergedIds = new Set(mergedArchive.map((n) => n.id));
+      const localById = new Map(latestLocal.map((n) => [n.id, n]));
+      const orphans = latestLocal.filter(
+        (n) => !mergedIds.has(n.id) && !mergedTombstones[n.id]
+      );
+      let nextArchive: ArchivedNote[] = orphans.length
+        ? [...mergedArchive, ...orphans]
+        : mergedArchive.slice();
+
+      // Step 2: prefer the local copy of any note whose `updatedAt` is
+      // strictly newer than the merged copy. This catches local mutations
+      // (pin toggle, content edits, splitRatio drag, …) made *during* the
+      // sync — the in-flight POST didn't include them, so the server's
+      // mergedArchive has the older version, and we'd otherwise overwrite
+      // the local change. handleTogglePin and buildLatestArchive both bump
+      // updatedAt to Date.now(), which makes the check uniform across
+      // mutation types.
+      if (!opts.isInitial) {
+        nextArchive = nextArchive.map((n) => {
+          const local = localById.get(n.id);
+          return local && local.updatedAt > n.updatedAt ? local : n;
+        });
       }
-      // If the active note was deleted on another device (tombstoned, so it
-      // disappeared from the merged archive), pick a sibling or a new empty
-      // one so the editor doesn't keep pointing at a ghost.
-      if (curActive && !mergedArchive.some((n) => n.id === curActive)) {
-        if (mergedArchive.length === 0) {
+
+      // Step 3: on regular (non-initial) syncs, also unconditionally swap in
+      // the active note's latest local copy. The general rule above misses
+      // the case where the user typed a few characters during the sync but
+      // the server's mergedArchive carries the same updatedAt we POSTed
+      // (because no other device touched it) — and our local snapshot
+      // microtask has updated React state but kept the same updatedAt
+      // (`buildLatestArchive` only bumps it when content actually differs).
+      // Forcing the swap keeps in-flight typing visible.
+      if (!opts.isInitial && curActive && latestLocalActive) {
+        const idx = nextArchive.findIndex((n) => n.id === curActive);
+        if (idx !== -1) {
+          nextArchive = nextArchive.map((n, i) => (i === idx ? latestLocalActive : n));
+        }
+      }
+
+      // Step 4: if the active note was deleted on another device (tombstoned
+      // server-side, so it didn't come back AND we had no local copy of it
+      // either), pick a sibling or a new empty one so the editor doesn't
+      // keep pointing at a ghost.
+      const activeStillPresent =
+        curActive && nextArchive.some((n) => n.id === curActive);
+      if (curActive && !activeStillPresent) {
+        if (nextArchive.length === 0) {
           const fresh = newEmptyNote();
           nextArchive = [fresh];
           setActiveId(fresh.id);
@@ -545,7 +606,7 @@ export default function Home() {
           setNotesVersion((v) => v + 1);
           setEnhancedVersion((v) => v + 1);
         } else {
-          const next = mergedArchive[0];
+          const next = nextArchive[0];
           setActiveId(next.id);
           setInitialNotesHtml(mdToHtml(next.notes));
           setEnhancedHtml(next.enhancedHtml || "");
@@ -817,8 +878,8 @@ export default function Home() {
     e.target.value = "";
     if (files.length === 0) return;
 
-    // Reset any prior error so a stale "file X troppo grande" doesn't
-    // hang around if the user picks a fresh batch that's all valid.
+    // Reset any prior error so a stale message doesn't hang around if the
+    // user picks a fresh batch that's all valid.
     setAppError(null);
 
     // Multi-file: prefix each transcribed block with `=== filename ===`
@@ -826,24 +887,20 @@ export default function Home() {
     // apart. Single-file: skip the label (one block, label would be
     // visual noise).
     const multi = files.length > 1;
-    const oversize: string[] = [];
-    // Filter to valid files first so the batch counter reflects work
-    // we'll actually do, not files we'll reject.
-    const valid = files.filter((f) => {
-      if (f.size > 25 * 1024 * 1024) {
-        oversize.push(`${f.name} (${Math.round(f.size / 1024 / 1024)} MB)`);
-        return false;
-      }
-      return true;
-    });
+    // Files >25 MB used to be rejected upfront — Groq Whisper's hard cap.
+    // Now `useAudioRecorder.uploadAndTranscribe` decodes + downsamples + WAV-
+    // chunks oversize inputs on the client and stitches the Whisper outputs
+    // back together, so the cap is invisible to the user. We still let the
+    // batch run end-to-end here; per-file failures are reported via the
+    // hook's `error` channel.
     try {
-      for (let i = 0; i < valid.length; i++) {
-        const file = valid[i];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         // For multi-file batches, replace the per-file flickering pill
         // with a steady "i+1/total: filename" indicator. Single-file
         // imports leave importBatch null and keep the existing pill.
         if (multi) {
-          setImportBatch({ current: i + 1, total: valid.length, name: file.name });
+          setImportBatch({ current: i + 1, total: files.length, name: file.name });
         }
         const label = multi ? `=== ${file.name} ===` : undefined;
         // Sequential await so the transcript blocks land in user-picked
@@ -852,13 +909,6 @@ export default function Home() {
       }
     } finally {
       setImportBatch(null);
-    }
-    // Surface ALL oversize-file errors at once instead of letting the
-    // last setAppError win in the loop.
-    if (oversize.length > 0) {
-      setAppError(
-        `File troppo grandi (>25 MB Groq Whisper limit): ${oversize.join(", ")}.`
-      );
     }
   };
 
@@ -1036,13 +1086,15 @@ export default function Home() {
 
       const iframe = document.createElement("iframe");
       iframe.setAttribute("aria-hidden", "true");
-      // Sandboxed iframe — `allow-modals` lets the print dialog open,
-      // everything else stays blocked: no scripts, no navigation, no
-      // form submission, no plugins, opaque origin. Even if the
-      // rendered note HTML contained a stray <script>, it can't run,
-      // and a malicious markdown URL can't reach our IndexedDB or
-      // cookies because the iframe is treated as a different origin.
-      iframe.setAttribute("sandbox", "allow-modals");
+      // Sandboxed iframe — `allow-modals` lets the print dialog open and
+      // `allow-same-origin` is required so the parent page can reach
+      // `iframe.contentWindow.print()` without a SecurityError ("Sandbox
+      // access violation: blocked a frame from accessing a cross-origin
+      // frame"). We deliberately omit `allow-scripts`, so even if the
+      // rendered note HTML contained a stray <script>, nothing executes;
+      // and the iframe has no network access (srcdoc only) so no
+      // malicious markdown URL can phone home from inside it.
+      iframe.setAttribute("sandbox", "allow-modals allow-same-origin");
       // Real (non-zero) dimensions positioned off-screen.
       // 0×0 + opacity:0 caused Safari and Chrome to skip layout/paint of
       // the iframe document, and `contentWindow.print()` then printed a
@@ -1195,8 +1247,17 @@ export default function Home() {
           {isTranscribingRecording && !isRecording && (
             <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
               <Loader2 size={11} className="animate-spin-fast" />
-              <span className="text-[11px] font-medium hidden sm:inline">Trascrivo registrazione…</span>
-              <span className="text-[11px] font-medium sm:hidden">Trascrivo…</span>
+              <span className="text-[11px] font-medium hidden sm:inline">
+                Trascrivo registrazione
+                {transcribeChunkProgress
+                  ? ` (parte ${transcribeChunkProgress.current}/${transcribeChunkProgress.total})…`
+                  : "…"}
+              </span>
+              <span className="text-[11px] font-medium sm:hidden">
+                {transcribeChunkProgress
+                  ? `${transcribeChunkProgress.current}/${transcribeChunkProgress.total}`
+                  : "Trascrivo…"}
+              </span>
             </div>
           )}
           {/* Single-file pill: hidden during a multi-file batch so the
@@ -1204,8 +1265,17 @@ export default function Home() {
           {isTranscribingFile && !importBatch && (
             <div className="flex items-center gap-2 h-8 px-2.5 md:px-3 rounded-full bg-accent/10 border border-accent/30 text-accent">
               <Loader2 size={11} className="animate-spin-fast" />
-              <span className="text-[11px] font-medium hidden sm:inline">Trascrivo file…</span>
-              <span className="text-[11px] font-medium sm:hidden">File…</span>
+              <span className="text-[11px] font-medium hidden sm:inline">
+                Trascrivo file
+                {transcribeChunkProgress
+                  ? ` (parte ${transcribeChunkProgress.current}/${transcribeChunkProgress.total})…`
+                  : "…"}
+              </span>
+              <span className="text-[11px] font-medium sm:hidden">
+                {transcribeChunkProgress
+                  ? `${transcribeChunkProgress.current}/${transcribeChunkProgress.total}`
+                  : "File…"}
+              </span>
             </div>
           )}
           {importBatch && (
