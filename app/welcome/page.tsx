@@ -3,18 +3,12 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { Sparkles, Mic, FileDown, MessageCircle, ArrowRight } from "lucide-react";
 
 // Public landing page — shown to unauthenticated visitors. Authenticated
 // users are redirected to "/" (the app) on mount, so a logged-in user
 // hitting /welcome by mistake doesn't land on a marketing page that no
 // longer applies to them.
-//
-// Layout follows the dominant pattern in serious minimalist SaaS landings
-// (Linear, Vercel, Raycast, Stripe): one viewport-tall hero with a tight
-// headline + sub + single primary CTA, then a numbered three-step
-// explainer instead of icon-grid features, then a closing CTA, then a
-// hairline footer. No badges, no buzzwords, no implementation jargon.
 export default function WelcomePage() {
   const router = useRouter();
 
@@ -39,86 +33,88 @@ export default function WelcomePage() {
           <span className="text-accent opacity-50">/</span>
           <span className="text-accent tracking-tight font-medium">enhance</span>
         </div>
-        <Link
-          href="/login?mode=login"
-          className="press text-[13px] tracking-tight text-text-secondary hover:text-text-primary"
-        >
-          Accedi
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/login?mode=login"
+            className="press h-9 px-4 rounded-lg text-[13px] font-medium tracking-tight text-text-secondary hover:text-text-primary inline-flex items-center"
+          >
+            Accedi
+          </Link>
+          <Link
+            href="/login?mode=register"
+            className="btn-premium-accent press h-9 px-4 rounded-lg text-[13px] font-medium tracking-tight inline-flex items-center gap-1.5"
+          >
+            Inizia
+          </Link>
+        </div>
       </header>
 
-      <main className="flex-1 flex flex-col">
-        {/* ── Hero ── */}
-        <section className="px-6 md:px-10 pt-16 md:pt-32 pb-20 md:pb-28">
-          <div className="max-w-3xl mx-auto text-center">
-            <h1 className="text-[40px] sm:text-5xl md:text-6xl font-bold tracking-tight text-text-emphasis leading-[1.05] mb-7">
-              Niente più appunti{" "}
-              <span className="text-accent">da ricopiare</span>.
-            </h1>
-            <p className="text-[16px] md:text-[18px] text-text-secondary leading-relaxed max-w-xl mx-auto mb-10">
-              Registri il prof o scrivi quello che vuoi. Diventa una pagina
-              pulita, pronta da rileggere quando arriva l&apos;esame.
-            </p>
-            <Link
-              href="/login?mode=register"
-              className="btn-premium-accent press h-12 px-7 rounded-xl text-[14px] font-medium tracking-tight inline-flex items-center justify-center gap-2"
-            >
-              Inizia
-              <ArrowRight size={15} />
-            </Link>
-          </div>
-        </section>
-
-        {/* ── How it works ──
-            Three numbered steps in a single row on desktop. Mono-font numerals
-            do the visual heavy lifting in place of icons, the same trick
-            Linear and Stripe use. Each step is one concrete sentence — no
-            icons, no boxed cards, just a number, a verb, and an outcome. */}
-        <section className="px-6 md:px-10 pb-24 md:pb-32">
-          <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-12">
-            <Step
-              n="01"
-              title="Registri o scrivi"
-              body="Apri l'app in aula. Registri quello che dice il prof, butti giù due righe quando ti viene."
-            />
-            <Step
-              n="02"
-              title="Si sistema da solo"
-              body="A fine giornata trovi una pagina ordinata. Lo stile lo decidi tu."
-            />
-            <Step
-              n="03"
-              title="Lo apri quando serve"
-              body="Telefono, laptop, PDF. La sera prima dell'esame, apri e ripassi."
-            />
-          </div>
-        </section>
-
-        {/* ── Closing CTA ──
-            Repeat the primary call to action after the explainer. Same
-            wording as the hero so visitors who scrolled past once recognise
-            the button instantly. */}
-        <section className="px-6 md:px-10 pb-24 md:pb-32">
-          <div className="max-w-2xl mx-auto text-center">
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-text-emphasis mb-7">
-              Provalo con la prossima lezione.
-            </h2>
+      {/* ── Hero ── */}
+      <main className="flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
+        <section className="max-w-3xl mx-auto text-center">
+          {/* `text-balance` lets the browser pick line breaks that look more
+              even — without it, large headlines often end up with a single
+              short word stranded on the second line. */}
+          <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-text-emphasis leading-[1.05] mb-6 text-balance">
+            Le note di lezione,{" "}
+            <span className="text-accent">sistemate da sole</span>.
+          </h1>
+          {/* `text-pretty` avoids orphans (the typical "single word on the
+              last line" problem that makes a paragraph look bottom-heavy). */}
+          <p className="text-[15px] md:text-[17px] text-text-secondary leading-relaxed max-w-2xl mx-auto mb-10 text-pretty">
+            Registri il prof, scrivi due cose al volo, a fine giornata trovi
+            una pagina che si rilegge. Pronta in PDF la settimana prima
+            dell&apos;esame — non quella sera che la cerchi.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               href="/login?mode=register"
               className="btn-premium-accent press h-11 px-6 rounded-xl text-[14px] font-medium tracking-tight inline-flex items-center justify-center gap-2"
             >
-              Crea il tuo account
+              Inizia ora
               <ArrowRight size={15} />
             </Link>
+            <Link
+              href="/login?mode=login"
+              className="press h-11 px-6 rounded-xl text-[14px] font-medium tracking-tight border border-[var(--material-border-strong)] bg-surface-2/60 hover:bg-surface-3/70 text-text-primary inline-flex items-center justify-center"
+            >
+              Ho già un account
+            </Link>
           </div>
+        </section>
+
+        {/* ── Feature grid ──
+            Four cards: 1-col on mobile, 2-col on tablet, 4-col on desktop.
+            Each card carries the icon + name + a one-line concrete use. */}
+        <section className="mt-20 md:mt-32 max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Feature
+            icon={<Mic size={16} className="text-accent" />}
+            title="L'audio della lezione, in testo"
+            body="Importi la registrazione, anche di un'ora intera. Esce trascritta direttamente nelle note. Niente da copiare a mano."
+          />
+          <Feature
+            icon={<Sparkles size={16} className="text-accent" />}
+            title="Gli appunti grezzi, sistemati"
+            body="Quello che hai buttato giù in fretta diventa una pagina che si capisce. Lo stile lo decidi tu, non un template uguale per tutti."
+          />
+          <Feature
+            icon={<MessageCircle size={16} className="text-accent" />}
+            title="Chiedi quello che ti serve"
+            body="Hai un dubbio su un punto specifico? Lo chiedi e ti risponde, basandosi su quello che hai scritto e registrato."
+          />
+          <Feature
+            icon={<FileDown size={16} className="text-accent" />}
+            title="Sincronizzato, esportabile"
+            body="Aggiungi una riga in metro, finisci sul portatile a casa. Quando ti serve ripassare offline, esporti in PDF."
+          />
         </section>
       </main>
 
       {/* ── Footer ── */}
       <footer className="px-6 md:px-10 py-6 border-t border-[var(--material-border)]">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-[11px] text-text-faint">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-[11px] text-text-faint font-mono">
           <span>© nota/enhance</span>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4">
             <Link href="/login?mode=login" className="hover:text-text-secondary">Accedi</Link>
             <Link href="/login?mode=register" className="hover:text-text-secondary">Registrati</Link>
           </div>
@@ -128,16 +124,18 @@ export default function WelcomePage() {
   );
 }
 
-function Step({ n, title, body }: { n: string; title: string; body: string }) {
+function Feature({
+  icon, title, body,
+}: { icon: React.ReactNode; title: string; body: string }) {
   return (
-    <div>
-      <div className="font-mono text-[12px] text-accent tracking-[0.18em] mb-3">
-        {n}
+    <div className="material-regular border rounded-2xl p-5">
+      <div className="w-8 h-8 rounded-xl bg-accent/15 border border-accent/25 flex items-center justify-center mb-3">
+        {icon}
       </div>
-      <h3 className="text-[16px] font-semibold tracking-tight text-text-emphasis mb-2">
+      <h3 className="text-[13px] font-semibold text-text-emphasis tracking-tight mb-1.5 text-balance">
         {title}
       </h3>
-      <p className="text-[13.5px] text-text-secondary leading-relaxed">
+      <p className="text-[12.5px] text-text-secondary leading-relaxed text-pretty">
         {body}
       </p>
     </div>
