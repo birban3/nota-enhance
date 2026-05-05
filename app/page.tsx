@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { getVal, setVal } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
+import { SuggestionsModal } from "@/components/SuggestionsModal";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
@@ -115,6 +116,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   // Multi-file import progress: shown in the header in place of the
   // per-file "Trascrivo file…" pill so the user sees "2/5: file.aac"
   // instead of a flickering single-file spinner that resets each loop.
@@ -1638,6 +1640,7 @@ export default function Home() {
         onDelete={handleDeleteNote}
         onTogglePin={handleTogglePin}
         onOpenCommandPalette={() => setPaletteOpen(true)}
+        onOpenSuggestions={() => setSuggestionsOpen(true)}
         onLogout={handleLogout}
         username={username}
         onMouseEnter={handleSidebarHoverEnter}
@@ -1656,6 +1659,7 @@ export default function Home() {
         onEnhance={handleEnhance}
         onToggleTheme={toggleTheme}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSuggestions={() => setSuggestionsOpen(true)}
         enhanceShortcut={formatShortcut(shortcuts.enhance)}
       />
 
@@ -1665,6 +1669,12 @@ export default function Home() {
         onClose={() => setSettingsOpen(false)}
         shortcuts={shortcuts}
         onChange={updateShortcuts}
+      />
+
+      {/* ── Suggestions modal ── */}
+      <SuggestionsModal
+        open={suggestionsOpen}
+        onClose={() => setSuggestionsOpen(false)}
       />
 
       {/* ── Enhance Prompt Modal ── */}
