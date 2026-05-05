@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Mic, FileDown, MessageCircle, ArrowRight } from "lucide-react";
+import { Sparkles, Mic, FileDown, ArrowRight } from "lucide-react";
 
 // Public landing page — shown to unauthenticated visitors. Authenticated
 // users are redirected to "/" (the app) on mount, so a logged-in user
@@ -44,34 +44,29 @@ export default function WelcomePage() {
             href="/login?mode=register"
             className="btn-premium-accent press h-9 px-4 rounded-lg text-[13px] font-medium tracking-tight inline-flex items-center gap-1.5"
           >
-            <Sparkles size={13} />
-            Registrati
+            Inizia
           </Link>
         </div>
       </header>
 
       {/* ── Hero ── */}
-      <main className="flex-1 px-6 md:px-10 pt-10 md:pt-20 pb-16">
+      <main className="flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
         <section className="max-w-3xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 h-7 px-3 rounded-full bg-accent/10 border border-accent/25 text-accent text-[11px] font-mono uppercase tracking-[0.18em] mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            Public beta
-          </div>
           <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-text-emphasis leading-[1.05] mb-6">
-            Note che si trasformano,{" "}
-            <span className="text-accent">non solo annotate</span>.
+            Le note di lezione,{" "}
+            <span className="text-accent">sistemate da sole</span>.
           </h1>
           <p className="text-[15px] md:text-[17px] text-text-secondary leading-relaxed max-w-2xl mx-auto mb-10">
-            Scrivi, registra, importa audio, e lascia che l&apos;AI riformatti i tuoi
-            appunti come una pagina ben curata. Sincronizzato fra tutti i tuoi dispositivi,
-            esportabile in PDF, e tutto privato — solo tuo.
+            Registri il prof, scrivi due cose al volo, a fine giornata trovi una
+            pagina che si rilegge. Pronta in PDF la settimana prima dell&apos;esame —
+            non quella sera che la cerchi.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               href="/login?mode=register"
               className="btn-premium-accent press h-11 px-6 rounded-xl text-[14px] font-medium tracking-tight inline-flex items-center justify-center gap-2"
             >
-              Crea il tuo account
+              Inizia ora
               <ArrowRight size={15} />
             </Link>
             <Link
@@ -81,56 +76,44 @@ export default function WelcomePage() {
               Ho già un account
             </Link>
           </div>
-          <p className="text-[11px] text-text-faint mt-6 font-mono">
-            Gratis durante la beta · Le password sono salvate solo come hash bcrypt
-          </p>
         </section>
 
         {/* ── Feature grid ── */}
         <section className="mt-20 md:mt-32 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
           <Feature
             icon={<Mic size={16} className="text-accent" />}
-            title="Trascrizione audio"
-            body="Registra dal microfono o carica file audio (anche >25 MB, sì). La trascrizione finisce direttamente nelle tue note."
+            title="L'audio della lezione, in testo"
+            body="Importi la registrazione, anche di un'ora intera. Esce trascritta direttamente nelle note. Niente da copiare a mano."
           />
           <Feature
             icon={<Sparkles size={16} className="text-accent" />}
-            title="Enhance con un click"
-            body="Trasforma appunti grezzi in note pulite e strutturate. Tu controlli lo stile via prompt personalizzati."
+            title="Gli appunti grezzi, sistemati"
+            body="Quello che hai buttato giù in fretta diventa una pagina che si capisce. Lo stile lo decidi tu, non un template uguale per tutti."
           />
           <Feature
             icon={<FileDown size={16} className="text-accent" />}
-            title="Export PDF"
-            body="Le tue note + il versione enhanced fianco a fianco, formattate per la stampa. Un click."
+            title="Sincronizzato, esportabile"
+            body="Aggiungi una riga in metro, finisci sul portatile a casa. Quando ti serve ripassare offline, esporti in PDF."
           />
         </section>
 
-        {/* ── Privacy strip ── */}
-        <section className="mt-20 md:mt-28 max-w-3xl mx-auto material-regular border rounded-2xl p-6 md:p-8">
-          <h2 className="text-[14px] font-semibold text-text-emphasis tracking-tight mb-3">
-            Privacy by design
-          </h2>
-          <p className="text-[13px] text-text-secondary leading-relaxed">
-            Ogni utente ha il proprio archivio isolato — le note non vengono
-            mai mescolate fra account. Le password vengono salvate solo come hash
-            bcrypt (12 round); nemmeno noi possiamo recuperarle in chiaro. La
-            sincronizzazione passa da un cookie httpOnly firmato (JWT, scadenza 30 giorni).
+        {/* ── Closing line ──
+            One short paragraph instead of the old "Privacy by design" buzzword
+            block. Says the only privacy thing that actually matters to a new
+            visitor (your stuff isn't mixed with someone else's) and gets out
+            of the way. */}
+        <section className="mt-20 md:mt-28 max-w-2xl mx-auto text-center">
+          <p className="text-[13px] text-text-muted leading-relaxed">
+            Ogni account ha il suo archivio. Le note non si mescolano fra
+            utenti. Le password sono solo hash — nessuno le legge in chiaro.
           </p>
-        </section>
-
-        {/* ── Suggestions strip ── */}
-        <section className="mt-12 md:mt-16 max-w-3xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 text-[12px] text-text-muted">
-            <MessageCircle size={13} className="text-accent/70" />
-            Hai un&apos;idea? I suggerimenti si inviano dall&apos;app, una volta dentro.
-          </div>
         </section>
       </main>
 
       {/* ── Footer ── */}
       <footer className="px-6 md:px-10 py-6 border-t border-[var(--material-border)]">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-[11px] text-text-faint font-mono">
-          <span>© nota/enhance · v0 public beta</span>
+          <span>© nota/enhance</span>
           <div className="flex items-center gap-4">
             <Link href="/login?mode=login" className="hover:text-text-secondary">Accedi</Link>
             <Link href="/login?mode=register" className="hover:text-text-secondary">Registrati</Link>
