@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Plus, Mic, Download, Sparkles, Sun, Moon, Search, Settings } from "lucide-react";
+import { FileText, Plus, Mic, Download, Sparkles, Sun, Moon, Search, Settings, MessageCircle } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ArchivedNote } from "./NotesSidebar";
 
@@ -25,12 +25,13 @@ interface Props {
   onEnhance: () => void;
   onToggleTheme: () => void;
   onOpenSettings?: () => void;
+  onOpenSuggestions?: () => void;
   enhanceShortcut?: string;
 }
 
 export function CommandPalette({
   open, onClose, notes, onSelectNote, onCreate, onStartRecord, onImport, onEnhance, onToggleTheme,
-  onOpenSettings, enhanceShortcut,
+  onOpenSettings, onOpenSuggestions, enhanceShortcut,
 }: Props) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -47,6 +48,9 @@ export function CommandPalette({
       ...(onOpenSettings
         ? [{ id: "settings", label: "Scorciatoie & impostazioni", icon: <Settings size={14} />, group: "Azioni" as const, action: onOpenSettings }]
         : []),
+      ...(onOpenSuggestions
+        ? [{ id: "suggest", label: "Suggerisci un miglioramento", icon: <MessageCircle size={14} />, group: "Azioni" as const, action: onOpenSuggestions }]
+        : []),
     ];
     const noteCmds: Command[] = [...notes]
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -59,7 +63,7 @@ export function CommandPalette({
         action: () => onSelectNote(n.id),
       }));
     return [...actions, ...noteCmds];
-  }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, enhanceShortcut]);
+  }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, onOpenSuggestions, enhanceShortcut]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return allCommands;

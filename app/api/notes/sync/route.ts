@@ -12,8 +12,8 @@
 // depth — if a future middleware refactor or a public-paths regression
 // accidentally exposed this route, the archive (potentially containing
 // private notes / images / API call history) would not become world-
-// readable. Single-user model means we don't scope storage by username,
-// only gate access on a valid session.
+// readable. Storage is partitioned per username, so reading/writing only
+// ever touches the authenticated user's data.
 
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -30,19 +30,19 @@ export const dynamic = "force-dynamic";
 
 const EMPTY: RemoteShape = { archive: [], tombstones: {}, serverUpdatedAt: 0 };
 
-async function isAuthed(req: NextRequest): Promise<boolean> {
+async function authedUser(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) return false;
-  const username = await verifySessionToken(token);
-  return !!username;
+  if (!token) return null;
+  return verifySessionToken(token);
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await isAuthed(req))) {
+  const username = await authedUser(req);
+  if (!username) {
     return NextResponse.json({ error: "Non autenticato." }, { status: 401 });
   }
   try {
-    const remote = (await getRemoteArchive()) ?? EMPTY;
+    const remote = (await getRemoteArchive(username)) ?? EMPTY;
     return NextResponse.json(remote);
   } catch (err) {
     console.error("notes/sync GET failed:", err);
@@ -54,7 +54,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAuthed(req))) {
+  const username = await authedUser(req);
+  if (!username) {
     return NextResponse.json({ error: "Non autenticato." }, { status: 401 });
   }
   let body: { archive?: unknown; tombstones?: unknown };
@@ -93,9 +94,9 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const remote = (await getRemoteArchive()) ?? EMPTY;
+    const remote = (await getRemoteArchive(username)) ?? EMPTY;
     const merged = mergeArchives(remote, incoming);
-    await setRemoteArchive(merged);
+    await setRemoteArchive(username, merged);
     return NextResponse.json(merged);
   } catch (err) {
     console.error("notes/sync POST failed:", err);

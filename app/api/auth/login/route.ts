@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // Naive in-memory rate limit (per Vercel function instance — best effort).
 // For full protection use Vercel KV-backed limiting, but this is enough to
-// blunt obvious brute-force attempts on a single-user app.
+// blunt obvious brute-force attempts.
 const ATTEMPTS = new Map<string, { count: number; resetAt: number }>();
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 8;
@@ -32,6 +32,11 @@ function rateLimited(key: string): boolean {
   return entry.count > MAX_ATTEMPTS;
 }
 
+// Pre-computed hash of an arbitrary value, used as a constant-time decoy when
+// the username doesn't exist. Without this, the response time would leak
+// whether a username is registered.
+const DECOY_HASH = "$2b$12$KIXG3p3oU8YlXxbg4TlAg.4n5cHhAdgkoYjgxghPq7bV1tT0M/0ru";
+
 export async function POST(req: NextRequest) {
   try {
     const ip = clientKey(req);
@@ -42,28 +47,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cred = await getCredential();
-    if (!cred) {
-      return NextResponse.json(
-        { error: "Nessun account configurato. Esegui la registrazione iniziale.", needsRegister: true },
-        { status: 404 }
-      );
-    }
-
     const body = (await req.json().catch(() => ({}))) as {
       username?: unknown;
       password?: unknown;
     };
-    const username =
+    const usernameInput =
       typeof body.username === "string" ? body.username.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
 
-    // Always run bcrypt.compare even if usernames don't match — this keeps
-    // the response time roughly constant and avoids username enumeration.
-    const usernameOk = username === cred.username;
-    const passwordOk = await bcrypt.compare(password, cred.passwordHash);
+    const cred = usernameInput ? await getCredential(usernameInput) : null;
+    // Always run bcrypt.compare — against the decoy hash if the username
+    // doesn't exist — to keep response time roughly constant. Same defence
+    // against username enumeration the single-user route used.
+    const passwordOk = await bcrypt.compare(
+      password,
+      cred?.passwordHash || DECOY_HASH
+    );
 
-    if (!usernameOk || !passwordOk) {
+    if (!cred || !passwordOk) {
       return NextResponse.json(
         { error: "Credenziali non valide." },
         { status: 401 }

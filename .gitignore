@@ -6,8 +6,10 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
-# Local auth state (generated on first registration in dev)
+# Local auth + sync state (generated on first registration / sync in dev)
 .credentials.json
+.notes-archive.json
+.suggestions.json
 
 # macOS
 .DS_Store

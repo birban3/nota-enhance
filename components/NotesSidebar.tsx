@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, X, Search, Pin, PinOff, LogOut } from "lucide-react";
+import { Plus, Trash2, X, Search, Pin, PinOff, LogOut, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ThemeToggle } from "./ThemeToggle";
@@ -34,6 +34,7 @@ interface Props {
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
   onOpenCommandPalette: () => void;
+  onOpenSuggestions?: () => void;
   onLogout: () => void;
   username?: string | null;
   onMouseEnter?: () => void;
@@ -65,7 +66,7 @@ function snippet(notesMd: string): string {
 }
 
 export function NotesSidebar({
-  notes, activeId, open, onClose, onSelect, onCreate, onDelete, onTogglePin, onOpenCommandPalette, onLogout, username, onMouseEnter, onMouseLeave,
+  notes, activeId, open, onClose, onSelect, onCreate, onDelete, onTogglePin, onOpenCommandPalette, onOpenSuggestions, onLogout, username, onMouseEnter, onMouseLeave,
 }: Props) {
   // Pinned first (within each group: most recent createdAt on top).
   const sorted = [...notes].sort((a, b) => {
@@ -258,6 +259,15 @@ export function NotesSidebar({
             <span className="font-mono text-text-faint">⌘+K</span>
             <span>Comandi</span>
           </button>
+          {onOpenSuggestions && (
+            <button
+              onClick={() => { onClose(); onOpenSuggestions(); }}
+              title="Suggerisci un miglioramento"
+              className="press w-9 h-9 flex items-center justify-center rounded-lg bg-surface-2/50 hover:bg-accent/15 text-text-secondary hover:text-accent"
+            >
+              <MessageCircle size={14} />
+            </button>
+          )}
           <button
             onClick={onLogout}
             title={username ? `Esci (${username})` : "Esci"}

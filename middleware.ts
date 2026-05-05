@@ -3,7 +3,9 @@ import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 
 // Edge runtime — only `jose` is used in this file. No Node APIs.
 
+// Public marketing/auth surface — anyone can hit these without a session.
 const PUBLIC_PATHS = [
+  "/welcome",
   "/login",
   "/api/auth/login",
   "/api/auth/register",
@@ -25,7 +27,10 @@ export async function middleware(req: NextRequest) {
   if (username) return NextResponse.next();
 
   // Unauthenticated. APIs get a clean 401 (so the client can react), pages
-  // get redirected to /login.
+  // get redirected to the public landing page. The landing page links to
+  // /login for users who already have an account — we used to redirect
+  // straight to /login, but with open registration we want first-time
+  // visitors to see the marketing pitch first.
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(
       { error: "Non autenticato. Effettua il login." },
@@ -34,8 +39,8 @@ export async function middleware(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
-  url.pathname = "/login";
-  url.search = ""; // strip query so the form is clean
+  url.pathname = "/welcome";
+  url.search = ""; // strip query so the landing is clean
   return NextResponse.redirect(url);
 }
 
@@ -44,7 +49,7 @@ export async function middleware(req: NextRequest) {
 // /manifest.webmanifest, /icon.svg and /apple-icon during the "Add to
 // Home Screen / Dock" handshake, sometimes without our session cookie
 // (e.g. when the OS pre-caches them). Letting auth redirect those to
-// /login produces a broken-icon tile on the home screen.
+// /welcome produces a broken-icon tile on the home screen.
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon.svg|apple-icon).*)",
