@@ -62,8 +62,8 @@ export default function WelcomePage() {
           {/* `text-pretty` avoids orphans (the typical "single word on the
               last line" problem that makes a paragraph look bottom-heavy). */}
           <p className="text-[15px] md:text-[17px] text-text-secondary leading-relaxed max-w-2xl mx-auto mb-10 text-pretty">
-            Registri il prof, scrivi due cose al volo, a fine giornata trovi
-            una pagina che si rilegge. Pronta in PDF la settimana prima
+            Registri la lezione, prendi appunti, a fine giornata si uniscono
+            in una pagina sola. Pronta in PDF la settimana prima
             dell&apos;esame — non quella sera che la cerchi.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -90,7 +90,7 @@ export default function WelcomePage() {
           <Feature
             icon={<Mic size={16} className="text-accent" />}
             title="L'audio della lezione, in testo"
-            body="Importi la registrazione, anche di un'ora intera. Esce trascritta direttamente nelle note. Niente da copiare a mano."
+            body="Registri la lezione o importi la registrazione, viene trascritta automaticamente — puoi unirla ai tuoi appunti o approfondire chiedendo all'AI."
           />
           <Feature
             icon={<Sparkles size={16} className="text-accent" />}
@@ -100,12 +100,12 @@ export default function WelcomePage() {
           <Feature
             icon={<MessageCircle size={16} className="text-accent" />}
             title="Chiedi quello che ti serve"
-            body="Hai un dubbio su un punto specifico? Lo chiedi e ti risponde, basandosi su quello che hai scritto e registrato."
+            body="Hai un dubbio su un punto specifico? Lo chiedi e l'AI ti risponde, basandosi su quello che hai scritto e registrato."
           />
           <Feature
             icon={<FileDown size={16} className="text-accent" />}
             title="Sincronizzato, esportabile"
-            body="Aggiungi una riga in metro, finisci sul portatile a casa. Quando ti serve ripassare offline, esporti in PDF."
+            body="Aggiungi una riga in metro al telefono, finisci sul portatile a casa. Quando ti serve ripassare offline, esporti in PDF."
           />
         </section>
       </main>
