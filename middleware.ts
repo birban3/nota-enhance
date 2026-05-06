@@ -11,6 +11,10 @@ const PUBLIC_PATHS = [
   "/api/auth/register",
   "/api/auth/me",
   "/api/auth/logout",
+  // Google OAuth init + callback — visited by an unauthenticated browser
+  // mid-flow, so they MUST be public. The callback handler enforces its
+  // own state-cookie check before minting a session.
+  "/api/auth/google",
 ];
 
 function isPublic(pathname: string): boolean {

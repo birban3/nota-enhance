@@ -33,8 +33,8 @@ function rateLimited(key: string): boolean {
 }
 
 // Pre-computed hash of an arbitrary value, used as a constant-time decoy when
-// the username doesn't exist. Without this, the response time would leak
-// whether a username is registered.
+// the email doesn't exist. Without this, the response time would leak
+// whether an account is registered.
 const DECOY_HASH = "$2b$12$KIXG3p3oU8YlXxbg4TlAg.4n5cHhAdgkoYjgxghPq7bV1tT0M/0ru";
 
 export async function POST(req: NextRequest) {
@@ -48,23 +48,28 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => ({}))) as {
+      email?: unknown;
+      // `username` is accepted as a fallback so legacy accounts created
+      // before the email migration can still sign in.
       username?: unknown;
       password?: unknown;
     };
-    const usernameInput =
-      typeof body.username === "string" ? body.username.trim() : "";
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const usernameFallback =
+      typeof body.username === "string" ? body.username.trim().toLowerCase() : "";
+    const handle = email || usernameFallback;
     const password = typeof body.password === "string" ? body.password : "";
 
-    const cred = usernameInput ? await getCredential(usernameInput) : null;
-    // Always run bcrypt.compare — against the decoy hash if the username
+    const cred = handle ? await getCredential(handle) : null;
+    // Always run bcrypt.compare — against the decoy hash if the email
     // doesn't exist — to keep response time roughly constant. Same defence
-    // against username enumeration the single-user route used.
+    // against username enumeration the previous route used.
     const passwordOk = await bcrypt.compare(
       password,
       cred?.passwordHash || DECOY_HASH
     );
 
-    if (!cred || !passwordOk) {
+    if (!cred || !cred.passwordHash || !passwordOk) {
       return NextResponse.json(
         { error: "Credenziali non valide." },
         { status: 401 }
@@ -75,7 +80,13 @@ export async function POST(req: NextRequest) {
     ATTEMPTS.delete(ip);
 
     const token = await createSessionToken(cred.username);
-    const res = NextResponse.json({ ok: true, username: cred.username });
+    const res = NextResponse.json({
+      ok: true,
+      username: cred.username,
+      email: cred.email,
+      firstName: cred.firstName,
+      lastName: cred.lastName,
+    });
     res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
     return res;
   } catch (err) {

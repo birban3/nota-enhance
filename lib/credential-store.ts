@@ -21,9 +21,22 @@
 import "server-only";
 
 export interface Credential {
+  /** Internal handle. For new email-based registrations this equals the
+   *  lowercased email; for legacy username-based accounts (pre-email
+   *  migration) it's the original username. KV/file storage is always
+   *  keyed by this field, so it doubles as the user's stable identifier. */
   username: string;
+  /** Bcrypt hash. Empty string for Google-only accounts (no local password). */
   passwordHash: string;
   createdAt: number;
+  /** Email-registration fields. Undefined on legacy username-only accounts. */
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  /** Google OAuth subject (`sub` claim). Set on accounts that registered or
+   *  linked via Google so we can recognise repeat sign-ins even if the user's
+   *  email later changes Google-side. */
+  googleSub?: string;
 }
 
 const KV_USER_PREFIX = "nota-enhance:user:";
