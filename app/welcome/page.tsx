@@ -63,8 +63,10 @@ export default function WelcomePage() {
               last line" problem that makes a paragraph look bottom-heavy). */}
           <p className="text-[15px] md:text-[17px] text-text-secondary leading-relaxed max-w-2xl mx-auto mb-10 text-pretty">
             Registri la lezione, prendi appunti, a fine giornata si uniscono
-            in una pagina sola. Pronta in PDF la settimana prima
-            dell&apos;esame — non quella sera che la cerchi.
+            in una pagina sola.
+            <br />
+            Pronta in PDF la settimana prima dell&apos;esame — non quella
+            sera che la cerchi.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
