@@ -95,7 +95,7 @@ export default function WelcomePage() {
           <Feature
             icon={<Sparkles size={16} className="text-accent" />}
             title="Gli appunti grezzi, sistemati"
-            body="Quello che hai buttato giù in fretta diventa una pagina che si capisce. Lo stile lo decidi tu, non un template uguale per tutti."
+            body="Quello che hai buttato giù in fretta diventa una pagina dettagliata. Lo stile lo decidi tu, non un template uguale per tutti."
           />
           <Feature
             icon={<MessageCircle size={16} className="text-accent" />}
