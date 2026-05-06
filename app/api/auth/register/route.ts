@@ -32,12 +32,14 @@ function rateLimited(key: string): boolean {
   return entry.count > MAX_ATTEMPTS;
 }
 
-// Usernames double as KV partition keys, so we restrict the alphabet to
-// printable ASCII letters/digits and a small set of separators. This rules
-// out whitespace, control characters, and anything that would break URL
-// encoding in the KV REST path. Lowercase is enforced at storage time so
-// "Mario" and "mario" can't both exist.
-const USERNAME_RE = /^[a-zA-Z0-9._-]{3,32}$/;
+// Pragmatic email validator — RFC-strict regexes are huge and reject more
+// than they should. This catches the obvious mistakes (no @, no TLD,
+// whitespace) without rejecting legitimate addresses.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Allow letters from any alphabet (Italian users have accented chars; we
+// also want to support hyphens, apostrophes, and inner spaces for
+// multi-word names).
+const NAME_RE = /^[\p{L}][\p{L}\p{M}\s'.\-]{0,49}$/u;
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,19 +52,31 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => ({}))) as {
-      username?: unknown;
+      firstName?: unknown;
+      lastName?: unknown;
+      email?: unknown;
       password?: unknown;
     };
-    const usernameRaw =
-      typeof body.username === "string" ? body.username.trim() : "";
+    const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
+    const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body.password === "string" ? body.password : "";
 
-    if (!USERNAME_RE.test(usernameRaw)) {
+    if (!NAME_RE.test(firstName)) {
       return NextResponse.json(
-        {
-          error:
-            "Username non valido: 3–32 caratteri, solo lettere, numeri, punto, trattino e underscore.",
-        },
+        { error: "Nome non valido (1–50 caratteri, solo lettere e segni comuni)." },
+        { status: 400 }
+      );
+    }
+    if (!NAME_RE.test(lastName)) {
+      return NextResponse.json(
+        { error: "Cognome non valido (1–50 caratteri, solo lettere e segni comuni)." },
+        { status: 400 }
+      );
+    }
+    if (!EMAIL_RE.test(email) || email.length > 200) {
+      return NextResponse.json(
+        { error: "Email non valida." },
         { status: 400 }
       );
     }
@@ -73,27 +87,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Username uniqueness — case-insensitive lookup.
-    const existing = await getCredential(usernameRaw);
+    // Email is the unique identifier. Reject duplicates case-insensitively
+    // (already lowercased above).
+    const existing = await getCredential(email);
     if (existing) {
       return NextResponse.json(
-        { error: "Username già registrato. Prova un altro nome o accedi." },
+        { error: "Email già registrata. Prova ad accedere." },
         { status: 409 }
       );
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    // Persist the username in its lowercase canonical form so JWTs we mint
-    // and the storage keys never disagree.
-    const username = usernameRaw.toLowerCase();
     await setCredential({
-      username,
+      // `username` doubles as the storage key; for email-based registrations
+      // we use the lowercased email so we don't need a separate index.
+      username: email,
+      email,
+      firstName,
+      lastName,
       passwordHash,
       createdAt: Date.now(),
     });
 
-    const token = await createSessionToken(username);
-    const res = NextResponse.json({ ok: true, username });
+    const token = await createSessionToken(email);
+    const res = NextResponse.json({ ok: true, email, firstName, lastName });
     res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
     return res;
   } catch (err) {
