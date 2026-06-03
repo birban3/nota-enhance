@@ -7,7 +7,7 @@ import { useAudioRecorder } from "@/components/useAudioRecorder";
 import { NotesSidebar, type ArchivedNote, type AskMsg } from "@/components/NotesSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AudioWaveform } from "@/components/AudioWaveform";
-import { getVal, setVal, clearAllVals } from "@/lib/storage";
+import { clearAllVals } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
 import { SuggestionsModal } from "@/components/SuggestionsModal";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
@@ -31,16 +31,12 @@ const TiptapEditor = dynamic(() => import("@/components/TiptapEditor"), {
   loading: () => <div className="p-6 text-text-muted text-sm">Caricamento editor...</div>,
 });
 
+// Legacy IndexedDB / localStorage keys from the old local-first design.
+// They no longer back the running app — the server is the source of truth —
+// but we still reference them to scrub leftover data from prior installs on
+// hydrate and on logout (so nothing private survives on disk).
 const STORAGE_KEY = "nota-enhance-archive";
 const ACTIVE_ID_KEY = "nota-enhance-active-id";
-const TOMBSTONES_KEY = "nota-enhance-tombstones";
-// Records which logged-in user the locally-cached notes belong to. If the
-// current session's username doesn't match this, the local IndexedDB cache
-// belongs to a different account (account switch on the same browser) and
-// MUST be wiped before hydration — otherwise the stale notes get pushed up
-// under the new account on the first sync, leaking one user's data into
-// another's archive.
-const OWNER_KEY = "nota-enhance-owner";
 const DEFAULT_SPLIT = 0.5;
 // Debounce window between local changes and the next remote push. Long
 // enough that fast typing batches into one PUT, short enough that switching
@@ -185,83 +181,80 @@ export default function Home() {
   const displayError = appError || recError;
 
   // ── Hydrate ──
+  //
+  // Cloud-only architecture: the server is the single source of truth for
+  // notes, tombstones and the active-note pointer. Nothing about the
+  // archive is persisted in the browser (no IndexedDB, no localStorage),
+  // so two accounts signing in on the same device can NEVER see each
+  // other's data — there's nothing to leak. The previous local-first
+  // design with an "owner key" was close but still kept the data on disk
+  // between sessions; this is the only architecture that fully closes
+  // the leak.
+  //
+  // Side-effect on first load after the cutover: we wipe any pre-existing
+  // note IDB/localStorage from the old design. Same logic runs on logout
+  // (in handleLogout) so the local cache never re-accumulates.
   useEffect(() => {
     async function loadData() {
       try {
-        // Resolve the current session's username FIRST, before touching the
-        // local cache. The IDB note cache is global to the browser origin,
-        // so on a shared computer it may hold a different account's notes.
-        // We compare the logged-in user against the cache's recorded owner
-        // and wipe the cache on a mismatch — otherwise hydration would load
-        // the previous account's notes and the initial sync would push them
-        // up under the current account, cross-contaminating archives.
-        let currentUser: string | null = null;
+        // Belt-and-suspenders: scrub anything left over from the old
+        // local-first design. Safe to run on every load — clearAllVals is
+        // a no-op when the store is already empty, and the localStorage
+        // calls just remove keys that may or may not exist.
+        try { await clearAllVals(); } catch {}
         try {
-          const meRes = await fetch("/api/auth/me", { cache: "no-store" });
-          const me = await meRes.json();
-          currentUser = me?.username || null;
-        } catch {
-          // Network blip resolving identity — leave currentUser null. We
-          // skip the destructive wipe in that case (don't nuke data on a
-          // transient failure) and the next reload re-checks.
-        }
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(ACTIVE_ID_KEY);
+        } catch {}
+
+        const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+        const me = await meRes.json();
+        const currentUser: string | null = me?.username || null;
         setUsername(currentUser);
-
-        if (currentUser) {
-          const owner = await getVal<string>(OWNER_KEY);
-          if (owner && owner !== currentUser) {
-            // Account switch detected. Drop everything cached for the old
-            // owner. The current user's notes (if any) come back from the
-            // server on the initial sync below.
-            await clearAllVals();
-            // The legacy localStorage migration path (below) would otherwise
-            // re-import the previous owner's notes from localStorage. Clear
-            // those note keys too. UI prefs (theme, shortcuts) are not
-            // account-private, so we leave them.
-            try {
-              localStorage.removeItem(STORAGE_KEY);
-              localStorage.removeItem(ACTIVE_ID_KEY);
-            } catch {}
-          }
-          // Stamp/refresh the owner so subsequent loads recognise this user
-          // and future switches are caught.
-          await setVal(OWNER_KEY, currentUser);
+        if (!currentUser) {
+          // Middleware should have already redirected, but if we somehow
+          // ended up here unauthenticated, do the bounce ourselves rather
+          // than render an empty editor.
+          window.location.href = "/welcome";
+          return;
         }
 
-        let storedIdb = await getVal<ArchivedNote[]>(STORAGE_KEY);
-        if (!storedIdb) {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            storedIdb = JSON.parse(raw);
-            await setVal(STORAGE_KEY, storedIdb);
-            localStorage.removeItem(STORAGE_KEY);
-          }
+        // Pull the archive from the server. This is the user's whole
+        // archive — partitioned by their JWT subject, so even on a
+        // freshly-installed browser they see exactly their own notes.
+        const archiveRes = await fetch("/api/notes/sync", {
+          method: "GET",
+          cache: "no-store",
+        });
+        let stored: ArchivedNote[] = [];
+        let serverTombstones: Record<string, number> = {};
+        if (archiveRes.ok) {
+          const data = (await archiveRes.json()) as {
+            archive?: ArchivedNote[];
+            tombstones?: Record<string, number>;
+          };
+          stored = Array.isArray(data.archive) ? data.archive : [];
+          serverTombstones =
+            data.tombstones && typeof data.tombstones === "object" ? data.tombstones : {};
         }
-        const stored = storedIdb || [];
-
-        let storedActiveId = await getVal<string>(ACTIVE_ID_KEY);
-        if (!storedActiveId) {
-          storedActiveId = localStorage.getItem(ACTIVE_ID_KEY) || "";
-          if (storedActiveId) {
-            await setVal(ACTIVE_ID_KEY, storedActiveId);
-            localStorage.removeItem(ACTIVE_ID_KEY);
-          }
-        }
-
-        const storedTombstones =
-          (await getVal<Record<string, number>>(TOMBSTONES_KEY)) || {};
-        setTombstones(storedTombstones);
+        setTombstones(serverTombstones);
 
         if (stored.length === 0) {
+          // First-time user (or all notes deleted server-side). Start with
+          // a single empty draft note — local-only until they type the
+          // first character, the autosave pushes it on the next debounce.
           const first = newEmptyNote();
           setArchive([first]);
           setActiveId(first.id);
           setSplitRatio(first.splitRatio ?? DEFAULT_SPLIT);
         } else {
           setArchive(stored);
-          const valid = stored.find((n) => n.id === storedActiveId)?.id ?? stored[0].id;
-          setActiveId(valid);
-          const active = stored.find((n) => n.id === valid)!;
+          // No persisted "active id" anymore — pick the most recently
+          // updated note so reopening the app lands on the one the user
+          // was last working on (across devices).
+          const sorted = [...stored].sort((a, b) => b.updatedAt - a.updatedAt);
+          const active = sorted[0];
+          setActiveId(active.id);
           setInitialNotesHtml(mdToHtml(active.notes));
           setEnhancedHtml(active.enhancedHtml || "");
           setTranscript(active.transcript || "");
@@ -372,25 +365,23 @@ export default function Home() {
     return changed ? next : archive;
   }, [activeId, archive, transcript, enhancedHtml, title, titleManual, splitRatio, askMessages]);
 
-  // Direct, immediate persistence path — bypasses React state entirely.
-  // Returns the (possibly updated) archive so callers can also push it into
-  // React state when they want the UI to reflect the change.
+  // Cloud-only architecture: nothing is written to IndexedDB. `persistNow`
+  // is now an in-memory update path only — it builds the latest archive
+  // from the editor ref + React state and hands it back so callers can
+  // push it into React state. Durability comes from the debounced server
+  // sync (`scheduleRemoteSync` below) and the unload-time `flushNow` push.
   const persistNow = useCallback((): ArchivedNote[] => {
     if (!hydrated || !activeId) return archive;
     const next = buildLatestArchive();
     if (next === archive) return archive; // no actual change
 
-    // Cheap dirty-check against the last write to absorb identical-state
-    // ticks (e.g. autosave interval firing on a quiescent note).
+    // Dirty-check against the last published snapshot so identical-state
+    // ticks (autosave interval firing on a quiescent note) don't churn.
     let serialized: string;
     try { serialized = JSON.stringify(next); } catch { serialized = ""; }
     if (serialized && serialized === lastPersistedRef.current) return next;
     lastPersistedRef.current = serialized;
 
-    // Fire-and-forget IDB writes. Started synchronously — modern browsers
-    // keep the transaction alive across unload long enough to commit.
-    void setVal(STORAGE_KEY, next);
-    void setVal(ACTIVE_ID_KEY, activeId);
     return next;
   }, [hydrated, activeId, archive, buildLatestArchive]);
 
@@ -432,10 +423,39 @@ export default function Home() {
     return () => clearInterval(id);
   }, [snapshot, hydrated]);
 
-  // Final sync write on every page-leave signal. `flushNow` runs the same
-  // persistNow() above — guaranteed to start the IDB transaction before the
-  // browser unloads the page.
-  const flushNow = useCallback(() => { persistNow(); }, [persistNow]);
+  // Final push on every page-leave signal. In the cloud-only architecture
+  // there's no IDB to commit to, so we POST the latest snapshot directly to
+  // the server using sendBeacon (which the browser is guaranteed to fire
+  // during unload, unlike a regular fetch). persistNow() first refreshes
+  // the React state from the editor ref so the beacon payload includes the
+  // very last keystrokes the autosave debounce hadn't picked up yet.
+  const flushNow = useCallback(() => {
+    if (!hydrated) return;
+    const latest = persistNow();
+    const body = JSON.stringify({
+      archive: latest,
+      tombstones: tombstonesRef.current,
+    });
+    try {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        const blob = new Blob([body], { type: "application/json" });
+        navigator.sendBeacon("/api/notes/sync", blob);
+        return;
+      }
+    } catch {
+      // Fall through to keepalive fetch.
+    }
+    try {
+      // keepalive lets the request outlive the page in browsers without
+      // sendBeacon (older Safari edge cases). Fire-and-forget.
+      void fetch("/api/notes/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      });
+    } catch {}
+  }, [hydrated, persistNow]);
 
   useEffect(() => {
     const onHide = () => flushNow();
@@ -569,9 +589,9 @@ export default function Home() {
       };
 
       // Apply tombstones unconditionally (cheap, and they don't affect the
-      // visible UI on their own).
+      // visible UI on their own). Server-only — no IDB write in the cloud-
+      // only architecture.
       setTombstones(merged.tombstones || {});
-      void setVal(TOMBSTONES_KEY, merged.tombstones || {});
 
       const mergedArchive = Array.isArray(merged.archive) ? merged.archive : [];
       const mergedTombstones = merged.tombstones || {};
@@ -689,7 +709,6 @@ export default function Home() {
       }
 
       setArchive(nextArchive);
-      void setVal(STORAGE_KEY, nextArchive);
       // Refresh dirty-check ref so the next persistNow doesn't undo this.
       try { lastPersistedRef.current = JSON.stringify(nextArchive); } catch {}
       // Record the signature of what's now in sync with the server, so
