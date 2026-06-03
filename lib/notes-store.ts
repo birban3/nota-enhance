@@ -16,6 +16,7 @@
 // Server-only — never import from a client component.
 
 import "server-only";
+import { db, pgConfigured } from "@/lib/db";
 
 export interface AskMsg {
   role: "user" | "assistant";
@@ -206,14 +207,192 @@ async function fileSet(username: string, archive: RemoteShape): Promise<void> {
   await writeFileShape(shape);
 }
 
+// ── Postgres backend ──
+//
+// Notes live as individual rows (one per note, keyed by (user_id, id)) rather
+// than a single per-user JSON blob. This is the scalable shape: concurrent
+// device syncs resolve per-row via last-write-wins upserts, and future
+// features (search, sharing) can query columns directly. Tombstones are just
+// rows with a non-null `deleted_at`.
+
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Tracks user ids we've already checked for a one-time KV→PG migration, so a
+// genuinely-empty user doesn't trigger a KV round-trip on every sync.
+const pgMigrationChecked = new Set<string>();
+
+interface NoteRow {
+  id: string;
+  title: string | null;
+  body: string | null;
+  transcript: string | null;
+  enhanced_html: string | null;
+  created_at: string | number;
+  updated_at: string | number;
+  manual_title: boolean | null;
+  pinned: boolean | null;
+  split_ratio: number | null;
+  ask_messages: AskMsg[] | string | null;
+  deleted_at: string | number | null;
+}
+
+function rowToNote(r: NoteRow): ArchivedNoteServer {
+  let ask: AskMsg[] = [];
+  if (Array.isArray(r.ask_messages)) ask = r.ask_messages;
+  else if (typeof r.ask_messages === "string") {
+    try { ask = JSON.parse(r.ask_messages); } catch { ask = []; }
+  }
+  return {
+    id: r.id,
+    title: r.title ?? "",
+    notes: r.body ?? "",
+    transcript: r.transcript ?? "",
+    enhancedHtml: r.enhanced_html ?? "",
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+    manualTitle: !!r.manual_title,
+    pinned: !!r.pinned,
+    splitRatio: r.split_ratio ?? undefined,
+    askMessages: ask,
+  };
+}
+
+async function pgGet(username: string): Promise<RemoteShape> {
+  const client = await db();
+  const uid = username.trim().toLowerCase();
+  const rows = (await client`
+    SELECT id, title, body, transcript, enhanced_html, created_at, updated_at,
+           manual_title, pinned, split_ratio, ask_messages, deleted_at
+    FROM notes WHERE user_id = ${uid}
+  `) as NoteRow[];
+
+  const archive: ArchivedNoteServer[] = [];
+  const tombstones: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.deleted_at != null) {
+      tombstones[r.id] = Number(r.deleted_at);
+    } else {
+      archive.push(rowToNote(r));
+    }
+  }
+  return { archive, tombstones, serverUpdatedAt: Date.now() };
+}
+
+async function pgSet(username: string, shape: RemoteShape): Promise<void> {
+  const client = await db();
+  const uid = username.trim().toLowerCase();
+  const aliveIds = new Set(shape.archive.map((n) => n.id));
+
+  // Build every write as an un-awaited neon query, then run them all in ONE
+  // HTTP round-trip via neon's transaction(). Sequential awaits would be a
+  // round-trip per note — unacceptable when syncs fire every couple seconds
+  // during editing. The transaction is also atomic, so a partial failure
+  // can't leave the archive half-written.
+  const queries = [];
+
+  // Upsert live notes. The conflict guard mirrors mergeArchives' last-write-
+  // wins exactly:
+  //   • EXCLUDED.updated_at >= notes.updated_at  → don't clobber a newer copy
+  //   • (deleted_at IS NULL OR updated_at > deleted_at) → a note only
+  //     resurrects past a tombstone when its edit is newer than the delete.
+  for (const n of shape.archive) {
+    const ask = JSON.stringify(n.askMessages ?? []);
+    queries.push(client`
+      INSERT INTO notes (
+        id, user_id, title, body, transcript, enhanced_html,
+        created_at, updated_at, manual_title, pinned, split_ratio, ask_messages, deleted_at
+      ) VALUES (
+        ${n.id}, ${uid}, ${n.title ?? ""}, ${n.notes ?? ""}, ${n.transcript ?? ""},
+        ${n.enhancedHtml ?? ""}, ${n.createdAt}, ${n.updatedAt},
+        ${!!n.manualTitle}, ${!!n.pinned}, ${n.splitRatio ?? null}, ${ask}::jsonb, NULL
+      )
+      ON CONFLICT (user_id, id) DO UPDATE SET
+        title = EXCLUDED.title,
+        body = EXCLUDED.body,
+        transcript = EXCLUDED.transcript,
+        enhanced_html = EXCLUDED.enhanced_html,
+        updated_at = EXCLUDED.updated_at,
+        manual_title = EXCLUDED.manual_title,
+        pinned = EXCLUDED.pinned,
+        split_ratio = EXCLUDED.split_ratio,
+        ask_messages = EXCLUDED.ask_messages,
+        deleted_at = NULL
+      WHERE EXCLUDED.updated_at >= notes.updated_at
+        AND (notes.deleted_at IS NULL OR EXCLUDED.updated_at > notes.deleted_at)
+    `);
+  }
+
+  // Apply tombstones. Skip any id the merge kept alive — merge can leave an
+  // id in BOTH archive and tombstones after a resurrection, and re-
+  // tombstoning here would wrongly bury the live note.
+  for (const [id, ts] of Object.entries(shape.tombstones || {})) {
+    if (aliveIds.has(id)) continue;
+    queries.push(client`
+      INSERT INTO notes (id, user_id, created_at, updated_at, deleted_at)
+      VALUES (${id}, ${uid}, ${ts}, ${ts}, ${ts})
+      ON CONFLICT (user_id, id) DO UPDATE SET
+        deleted_at = GREATEST(COALESCE(notes.deleted_at, 0), EXCLUDED.deleted_at)
+    `);
+  }
+
+  // GC old tombstones (matches the in-memory merge's 30-day cutoff).
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS;
+  queries.push(client`
+    DELETE FROM notes WHERE user_id = ${uid} AND deleted_at IS NOT NULL AND deleted_at < ${cutoff}
+  `);
+
+  if (queries.length > 0) {
+    await client.transaction(queries);
+  }
+}
+
+// One-time import of a user's KV blob into Postgres on first access after the
+// cutover. Returns the imported shape (or null if nothing to import).
+async function pgMigrateFromKv(username: string): Promise<RemoteShape | null> {
+  if (!kvConfigured()) return null;
+  const blob = await kvGet(username);
+  if (!blob || (blob.archive.length === 0 && Object.keys(blob.tombstones).length === 0)) {
+    return null;
+  }
+  try {
+    await pgSet(username, blob);
+  } catch (err) {
+    console.warn("Lazy KV→PG notes migration failed:", err);
+    return blob; // still serve the KV data this request
+  }
+  return blob;
+}
+
 // ── Public API ──
+//
+// Backend precedence: Postgres (the real store) → Vercel KV (legacy prod) →
+// JSON file (dev). On the first Postgres read for a user with no rows yet, we
+// import their KV blob if present (lazy migration), so existing archives keep
+// working after the cutover.
 export async function getRemoteArchive(username: string): Promise<RemoteShape | null> {
   if (!username) return null;
+
+  if (pgConfigured()) {
+    const shape = await pgGet(username);
+    const empty = shape.archive.length === 0 && Object.keys(shape.tombstones).length === 0;
+    const uid = username.trim().toLowerCase();
+    if (empty && !pgMigrationChecked.has(uid)) {
+      pgMigrationChecked.add(uid);
+      const migrated = await pgMigrateFromKv(username);
+      if (migrated) return migrated;
+    }
+    return shape;
+  }
+
   return kvConfigured() ? kvGet(username) : fileGet(username);
 }
 
 export async function setRemoteArchive(username: string, shape: RemoteShape): Promise<void> {
   if (!username) throw new Error("setRemoteArchive: username required");
+  if (pgConfigured()) {
+    // Mark migration as handled so we don't re-import KV over fresh writes.
+    pgMigrationChecked.add(username.trim().toLowerCase());
+    return pgSet(username, shape);
+  }
   return kvConfigured() ? kvSet(username, shape) : fileSet(username, shape);
 }
 

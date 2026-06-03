@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { getCredential } from "@/lib/credential-store";
+import { getUserProfile } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,13 +13,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: false, username: null });
   }
   // Look up the full record so the app can render "Ciao Marco" without
-  // every page having to re-fetch the credential separately.
-  const cred = await getCredential(username);
+  // every page having to re-fetch the credential separately. The profile
+  // (plan + credits) is null until Postgres is provisioned — the client
+  // treats that as "billing not active".
+  const [cred, profile] = await Promise.all([
+    getCredential(username),
+    getUserProfile(username),
+  ]);
   return NextResponse.json({
     authenticated: true,
     username,
     email: cred?.email ?? null,
     firstName: cred?.firstName ?? null,
     lastName: cred?.lastName ?? null,
+    plan: profile?.plan ?? null,
+    credits: profile?.credits ?? null,
+    monthlyCredits: profile?.monthlyCredits ?? null,
   });
 }

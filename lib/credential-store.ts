@@ -19,6 +19,7 @@
 // Server-only — never import from a client component.
 
 import "server-only";
+import { db, pgConfigured } from "@/lib/db";
 
 export interface Credential {
   /** Internal handle. For new email-based registrations this equals the
@@ -197,12 +198,100 @@ async function fileSet(cred: Credential): Promise<void> {
   await writeFileShape(shape);
 }
 
+// ── Postgres backend ─────────────────────────────────────────────────────────
+//
+// The `users` table (lib/db.ts) is the real account store going forward. Only
+// the auth-relevant columns are read/written here; plan + credit columns are
+// owned by lib/users.ts and intentionally left untouched on credential
+// updates so a Google-link or password change can never reset someone's
+// balance.
+
+interface UserRow {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  password_hash: string | null;
+  google_sub: string | null;
+  created_at: string | number;
+}
+
+function rowToCredential(r: UserRow): Credential {
+  return {
+    username: r.id,
+    email: r.email ?? undefined,
+    firstName: r.first_name || undefined,
+    lastName: r.last_name || undefined,
+    passwordHash: r.password_hash ?? "",
+    googleSub: r.google_sub ?? undefined,
+    createdAt: Number(r.created_at),
+  };
+}
+
+async function pgGet(username: string): Promise<Credential | null> {
+  const client = await db();
+  const id = username.trim().toLowerCase();
+  const rows = (await client`
+    SELECT id, email, first_name, last_name, password_hash, google_sub, created_at
+    FROM users WHERE id = ${id}
+  `) as UserRow[];
+  return rows[0] ? rowToCredential(rows[0]) : null;
+}
+
+async function pgSet(cred: Credential): Promise<void> {
+  const client = await db();
+  const id = cred.username.trim().toLowerCase();
+  // ON CONFLICT updates only the auth columns — credits/plan/created_at are
+  // deliberately omitted so they survive a credential update.
+  await client`
+    INSERT INTO users (id, email, first_name, last_name, password_hash, google_sub, created_at)
+    VALUES (
+      ${id},
+      ${cred.email ?? null},
+      ${cred.firstName ?? ""},
+      ${cred.lastName ?? ""},
+      ${cred.passwordHash ?? ""},
+      ${cred.googleSub ?? null},
+      ${cred.createdAt}
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      email = EXCLUDED.email,
+      first_name = EXCLUDED.first_name,
+      last_name = EXCLUDED.last_name,
+      password_hash = EXCLUDED.password_hash,
+      google_sub = EXCLUDED.google_sub
+  `;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
+//
+// Backend precedence: Postgres (the real store) → Vercel KV (legacy prod) →
+// JSON file (dev). When Postgres is configured but a credential is only found
+// in KV, we copy it into Postgres on read ("lazy migration") so existing
+// accounts keep working seamlessly after the cutover without a batch job.
 export async function getCredential(username: string): Promise<Credential | null> {
   if (!username || typeof username !== "string") return null;
+
+  if (pgConfigured()) {
+    const fromPg = await pgGet(username);
+    if (fromPg) return fromPg;
+    // Lazy-migrate a still-in-KV account into Postgres on first access.
+    if (kvConfigured()) {
+      const fromKv = await kvGet(username);
+      if (fromKv) {
+        try { await pgSet(fromKv); } catch (err) {
+          console.warn("Lazy KV→PG credential migration failed:", err);
+        }
+        return fromKv;
+      }
+    }
+    return null;
+  }
+
   return kvConfigured() ? kvGet(username) : fileGet(username);
 }
 
 export async function setCredential(cred: Credential): Promise<void> {
+  if (pgConfigured()) return pgSet(cred);
   return kvConfigured() ? kvSet(cred) : fileSet(cred);
 }
