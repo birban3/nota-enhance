@@ -7,7 +7,7 @@ import { useAudioRecorder } from "@/components/useAudioRecorder";
 import { NotesSidebar, type ArchivedNote, type AskMsg } from "@/components/NotesSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AudioWaveform } from "@/components/AudioWaveform";
-import { getVal, setVal } from "@/lib/storage";
+import { getVal, setVal, clearAllVals } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
 import { SuggestionsModal } from "@/components/SuggestionsModal";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
@@ -34,6 +34,13 @@ const TiptapEditor = dynamic(() => import("@/components/TiptapEditor"), {
 const STORAGE_KEY = "nota-enhance-archive";
 const ACTIVE_ID_KEY = "nota-enhance-active-id";
 const TOMBSTONES_KEY = "nota-enhance-tombstones";
+// Records which logged-in user the locally-cached notes belong to. If the
+// current session's username doesn't match this, the local IndexedDB cache
+// belongs to a different account (account switch on the same browser) and
+// MUST be wiped before hydration — otherwise the stale notes get pushed up
+// under the new account on the first sync, leaking one user's data into
+// another's archive.
+const OWNER_KEY = "nota-enhance-owner";
 const DEFAULT_SPLIT = 0.5;
 // Debounce window between local changes and the next remote push. Long
 // enough that fast typing batches into one PUT, short enough that switching
@@ -128,18 +135,22 @@ export default function Home() {
   // Desktop ignores this state entirely (CSS shows both panes via md:flex).
   const [mobilePane, setMobilePane] = useState<"notes" | "enhanced">("notes");
 
-  // Auth — middleware ensures we get here only when logged in. We still fetch
-  // the username for the sidebar tooltip and provide a logout handler.
+  // Auth — middleware ensures we get here only when logged in. The username is
+  // resolved inside the hydration effect below (so it can gate the per-user
+  // IDB ownership check); this state just mirrors it for the sidebar tooltip.
   const [username, setUsername] = useState<string | null>(null);
-  useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setUsername(d.username || null))
-      .catch(() => {});
-  }, []);
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    // Wipe the local note cache on logout so the next person to log in on
+    // this browser starts from their own server-side archive, never the
+    // previous account's leftovers. Best-effort — proceed to /login even if
+    // the clear fails (the owner check on next hydration is the backstop).
+    try { await clearAllVals(); } catch {}
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_ID_KEY);
     } catch {}
     window.location.href = "/login";
   }, []);
@@ -177,6 +188,46 @@ export default function Home() {
   useEffect(() => {
     async function loadData() {
       try {
+        // Resolve the current session's username FIRST, before touching the
+        // local cache. The IDB note cache is global to the browser origin,
+        // so on a shared computer it may hold a different account's notes.
+        // We compare the logged-in user against the cache's recorded owner
+        // and wipe the cache on a mismatch — otherwise hydration would load
+        // the previous account's notes and the initial sync would push them
+        // up under the current account, cross-contaminating archives.
+        let currentUser: string | null = null;
+        try {
+          const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+          const me = await meRes.json();
+          currentUser = me?.username || null;
+        } catch {
+          // Network blip resolving identity — leave currentUser null. We
+          // skip the destructive wipe in that case (don't nuke data on a
+          // transient failure) and the next reload re-checks.
+        }
+        setUsername(currentUser);
+
+        if (currentUser) {
+          const owner = await getVal<string>(OWNER_KEY);
+          if (owner && owner !== currentUser) {
+            // Account switch detected. Drop everything cached for the old
+            // owner. The current user's notes (if any) come back from the
+            // server on the initial sync below.
+            await clearAllVals();
+            // The legacy localStorage migration path (below) would otherwise
+            // re-import the previous owner's notes from localStorage. Clear
+            // those note keys too. UI prefs (theme, shortcuts) are not
+            // account-private, so we leave them.
+            try {
+              localStorage.removeItem(STORAGE_KEY);
+              localStorage.removeItem(ACTIVE_ID_KEY);
+            } catch {}
+          }
+          // Stamp/refresh the owner so subsequent loads recognise this user
+          // and future switches are caught.
+          await setVal(OWNER_KEY, currentUser);
+        }
+
         let storedIdb = await getVal<ArchivedNote[]>(STORAGE_KEY);
         if (!storedIdb) {
           const raw = localStorage.getItem(STORAGE_KEY);
