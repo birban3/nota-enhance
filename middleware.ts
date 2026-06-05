@@ -15,6 +15,9 @@ const PUBLIC_PATHS = [
   // mid-flow, so they MUST be public. The callback handler enforces its
   // own state-cookie check before minting a session.
   "/api/auth/google",
+  // Stripe webhook is called by Stripe (no JWT). Signature verification
+  // inside the handler is the auth mechanism.
+  "/api/billing/webhook",
 ];
 
 function isPublic(pathname: string): boolean {

@@ -508,3 +508,14 @@ html {
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { size: A4; margin: 18mm; }
 }
+
+/* Respect prefers-reduced-motion on the landing hero animation. The SVG
+   inside .reduce-motion-freeze uses SMIL <animate> tags; stopping them with
+   `animation-play-state` doesn't work (SMIL is not CSS animation), so we
+   hide the moving dots entirely and leave the static scribble + clean
+   lines composition behind. */
+@media (prefers-reduced-motion: reduce) {
+  .reduce-motion-freeze svg circle {
+    display: none;
+  }
+}

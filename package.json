@@ -35,7 +35,8 @@
     "next": "^15.5.15",
     "openai": "^6.34.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "stripe": "^22.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

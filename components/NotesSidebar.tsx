@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, Trash2, X, Search, Pin, PinOff, LogOut, MessageCircle } from "lucide-react";
+import Link from "next/link";
+import { Plus, Trash2, X, Search, Pin, PinOff, LogOut, MessageCircle, User as UserIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ThemeToggle } from "./ThemeToggle";
@@ -268,6 +269,14 @@ export function NotesSidebar({
               <MessageCircle size={14} />
             </button>
           )}
+          <Link
+            href="/account"
+            onClick={onClose}
+            title="Account, abbonamento, crediti"
+            className="press w-9 h-9 flex items-center justify-center rounded-lg bg-surface-2/50 hover:bg-surface-3/70 text-text-secondary hover:text-text-primary"
+          >
+            <UserIcon size={14} />
+          </Link>
           <button
             onClick={onLogout}
             title={username ? `Esci (${username})` : "Esci"}
