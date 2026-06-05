@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Plus, Mic, Download, Sparkles, Sun, Moon, Search, Settings, MessageCircle, User as UserIcon } from "lucide-react";
+import { FileText, Plus, Mic, Download, Sparkles, Sun, Moon, Search, Settings, MessageCircle, User as UserIcon, BookOpenCheck } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ArchivedNote } from "./NotesSidebar";
 
@@ -26,12 +26,13 @@ interface Props {
   onToggleTheme: () => void;
   onOpenSettings?: () => void;
   onOpenSuggestions?: () => void;
+  onOpenTour?: () => void;
   enhanceShortcut?: string;
 }
 
 export function CommandPalette({
   open, onClose, notes, onSelectNote, onCreate, onStartRecord, onImport, onEnhance, onToggleTheme,
-  onOpenSettings, onOpenSuggestions, enhanceShortcut,
+  onOpenSettings, onOpenSuggestions, onOpenTour, enhanceShortcut,
 }: Props) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -51,6 +52,9 @@ export function CommandPalette({
       ...(onOpenSuggestions
         ? [{ id: "suggest", label: "Suggerisci un miglioramento", icon: <MessageCircle size={14} />, group: "Azioni" as const, action: onOpenSuggestions }]
         : []),
+      ...(onOpenTour
+        ? [{ id: "tour", label: "Tour interattivo", icon: <BookOpenCheck size={14} />, group: "Azioni" as const, action: onOpenTour }]
+        : []),
       { id: "account", label: "Account, abbonamento, crediti", icon: <UserIcon size={14} />, group: "Azioni", action: () => { window.location.href = "/account"; } },
     ];
     const noteCmds: Command[] = [...notes]
@@ -64,7 +68,7 @@ export function CommandPalette({
         action: () => onSelectNote(n.id),
       }));
     return [...actions, ...noteCmds];
-  }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, onOpenSuggestions, enhanceShortcut]);
+  }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, onOpenSuggestions, onOpenTour, enhanceShortcut]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return allCommands;

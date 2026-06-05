@@ -354,15 +354,16 @@ export async function getBillingSnapshot(userId: string): Promise<{
   credits: number;
   monthlyCredits: number;
   creditsPeriodStart: number | null;
+  onboardedAt: number | null;
 } | null> {
   if (!pgConfigured() || !userId) return null;
   await applyMonthlyReset(userId);
   const client = await db();
   const uid = userId.trim().toLowerCase();
   const rows = (await client`
-    SELECT credits, plan, monthly_credits, credits_period_start
+    SELECT credits, plan, monthly_credits, credits_period_start, onboarded_at
     FROM users WHERE id = ${uid}
-  `) as UserBalanceRow[];
+  `) as Array<UserBalanceRow & { onboarded_at: string | number | null }>;
   const row = rows[0];
   if (!row) return null;
   const planId = row.plan || "free";
@@ -372,6 +373,7 @@ export async function getBillingSnapshot(userId: string): Promise<{
     credits: row.credits ?? 0,
     monthlyCredits: row.monthly_credits ?? 0,
     creditsPeriodStart: row.credits_period_start != null ? Number(row.credits_period_start) : null,
+    onboardedAt: row.onboarded_at != null ? Number(row.onboarded_at) : null,
   };
 }
 

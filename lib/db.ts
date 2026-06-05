@@ -71,8 +71,12 @@ const SCHEMA_STATEMENTS: string[] = [
     credits_period_start     BIGINT,
     stripe_customer_id       TEXT,
     subscription_status      TEXT,
-    subscription_period_end  BIGINT
+    subscription_period_end  BIGINT,
+    onboarded_at             BIGINT
   )`,
+  // Idempotent migration for deploys that already ran the older schema
+  // (without onboarded_at). Safe to re-run on every cold start.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS notes (
     id            TEXT NOT NULL,
     user_id       TEXT NOT NULL,

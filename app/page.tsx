@@ -10,6 +10,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { clearAllVals } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
 import { SuggestionsModal } from "@/components/SuggestionsModal";
+import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
@@ -120,6 +121,10 @@ export default function Home() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  // First-load interactive tour. Auto-opens on hydrate when the server says
+  // the user has never completed it (users.onboarded_at IS NULL), reopenable
+  // from the command palette / /account.
+  const [tourOpen, setTourOpen] = useState(false);
   // Multi-file import progress: shown in the header in place of the
   // per-file "Trascrivo file…" pill so the user sees "2/5: file.aac"
   // instead of a flickering single-file spinner that resets each loop.
@@ -232,6 +237,25 @@ export default function Home() {
         if (typeof me?.credits === "number") setCredits(me.credits);
         if (typeof me?.monthlyCredits === "number") setMonthlyCredits(me.monthlyCredits);
         if (typeof me?.planName === "string") setPlanName(me.planName);
+
+        // First-run tour decision. Prefer the server-side stamp; fall back to
+        // a localStorage flag for setups without Postgres (so the tour still
+        // only shows once per device in that case). We delay-open by a beat
+        // so the editor has time to paint before the spotlight tries to land.
+        const serverOnboarded = typeof me?.onboardedAt === "number" && me.onboardedAt > 0;
+        let onboardedFlag = serverOnboarded;
+        if (!serverOnboarded && currentUser) {
+          try {
+            const localFlag = localStorage.getItem(`nota-onboarded:${currentUser}`);
+            if (localFlag) onboardedFlag = true;
+          } catch {}
+        }
+        if (!onboardedFlag && currentUser) {
+          // 600 ms: long enough for the editor's dynamic import + layout
+          // pass to finish on a cold load, so the spotlight rect is stable.
+          setTimeout(() => setTourOpen(true), 600);
+        }
+
         if (!currentUser) {
           // Middleware should have already redirected, but if we somehow
           // ended up here unauthenticated, do the bounce ourselves rather
@@ -1313,6 +1337,115 @@ export default function Home() {
   const activeNote = archive.find((n) => n.id === activeId);
   const recordingBusy = isRecording || isTranscribingRecording;
 
+  // ── Tour script ──
+  // Each step optionally targets a `data-tour="…"` element. `beforeShow`
+  // primes the UI so the target is on screen — opening the sidebar for
+  // sidebar-internal targets, closing it for action-bar/editor targets, and
+  // switching the mobile tab to the notes pane when the spotlight needs it.
+  // The OnboardingTour component falls back to a centred card when a target
+  // is hidden at the current breakpoint (e.g. the credits chip on mobile),
+  // so no step gets stranded.
+  const tourSteps: TourStep[] = useMemo(() => {
+    const closeSidebar = () => { setSidebarOpen(false); };
+    const openSidebar = () => { setSidebarOpen(true); };
+    const focusNotes = () => { setMobilePane("notes"); };
+    return [
+      {
+        id: "welcome",
+        title: "Benvenuto su nota/enhance",
+        body: "Ti mostro in trenta secondi come si usa: registri, scrivi, e poi l'AI sistema. Puoi saltare quando vuoi.",
+        ctaLabel: "Iniziamo",
+      },
+      {
+        id: "sidebar",
+        title: "Le tue note",
+        body: "Qui trovi tutte le note che crei. Resta sincronizzato su ogni dispositivo dove fai login.",
+        target: "sidebar",
+        placement: "right",
+        beforeShow: openSidebar,
+      },
+      {
+        id: "new-note",
+        title: "Crea una nuova nota",
+        body: "Premi qui per iniziare una nota da zero — una per lezione, per appunti, per qualunque cosa ti serva.",
+        target: "new-note-btn",
+        placement: "right",
+        beforeShow: openSidebar,
+      },
+      {
+        id: "editor",
+        title: "Scrivi qui",
+        body: "Butta giù due righe — anche disordinate. Il sistema ci pensa dopo a sistemarle.",
+        target: "notes-pane",
+        placement: "auto",
+        beforeShow: async () => { closeSidebar(); focusNotes(); },
+      },
+      {
+        id: "import",
+        title: "Importa una registrazione",
+        body: "Hai già un audio della lezione? Caricalo qui — viene trascritto da solo.",
+        target: "import-btn",
+        placement: "top",
+        beforeShow: closeSidebar,
+      },
+      {
+        id: "record",
+        title: "Registra il prof",
+        body: "Premi per iniziare a registrare in aula. Quando smetti, la trascrizione arriva nelle note.",
+        target: "record-btn",
+        placement: "top",
+        beforeShow: closeSidebar,
+      },
+      {
+        id: "enhance",
+        title: "Il momento magico",
+        body: "Quando hai scritto e/o registrato qualcosa, premi Enhance: appunti e audio si uniscono in una pagina pulita.",
+        target: "enhance-btn",
+        placement: "top",
+        beforeShow: closeSidebar,
+      },
+      {
+        id: "ask",
+        title: "Chiedi quello che ti serve",
+        body: "Dubbio su un punto specifico? Lo chiedi all'AI: ti risponde basandosi sui tuoi appunti.",
+        target: "ask-btn",
+        placement: "top",
+        beforeShow: closeSidebar,
+      },
+      {
+        id: "pdf",
+        title: "Esporta in PDF",
+        body: "Quando sei pronto per ripassare offline (o stampare), esporti la nota e l'enhanced in un PDF.",
+        target: "pdf-btn",
+        placement: "top",
+        beforeShow: closeSidebar,
+      },
+      {
+        id: "credits",
+        title: "I tuoi crediti",
+        body: "Ogni operazione AI usa un credito. Qui vedi sempre il saldo residuo del mese.",
+        target: "credits-chip",
+        placement: "bottom",
+      },
+      {
+        id: "account",
+        title: "Account e abbonamento",
+        body: "Da qui gestisci il piano, vedi la cronologia crediti e puoi rifare questo tour quando vuoi.",
+        target: "account-link",
+        placement: "right",
+        beforeShow: openSidebar,
+      },
+      {
+        id: "done",
+        title: "Sei pronto",
+        body: "Buona scrittura. Se ti perdi: ⌘+K → 'Tour interattivo' e ricominciamo da capo.",
+        ctaLabel: "Fatto",
+        beforeShow: closeSidebar,
+      },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     // h-dvh (dynamic viewport) instead of h-screen so iOS Safari's
     // collapsing URL bar doesn't push the action bar below the visible area.
@@ -1412,6 +1545,7 @@ export default function Home() {
               page (Stripe wiring lands in a later step). */}
           {credits != null && (
             <div
+              data-tour="credits-chip"
               title={
                 planName
                   ? `${planName} · ${credits}${monthlyCredits ? `/${monthlyCredits}` : ""} crediti`
@@ -1500,6 +1634,7 @@ export default function Home() {
             also apply on mobile); mobile gets `flex-1` and full width because
             only one pane is visible at a time. */}
         <div
+          data-tour="notes-pane"
           className={`flex-col min-h-0 animate-fade-in min-w-0 md:flex md:basis-[var(--split-basis)] md:grow-0 md:shrink-0 ${
             mobilePane === "notes" ? "flex flex-1" : "hidden"
           }`}
@@ -1683,9 +1818,10 @@ export default function Home() {
           below an in-flow bar. The root container reserves matching
           padding-bottom so the editor / transcript don't slide under the
           fixed bar. Desktop keeps the in-flow `shrink-0` layout. */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 pb-safe md:pb-4">
+      <div data-tour="action-bar" className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 pb-safe md:pb-4">
         <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
+            data-tour="import-btn"
             onClick={handleImportClick}
             disabled={isTranscribingFile}
             className="press flex items-center gap-1.5 h-10 md:h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-50 text-text-secondary hover:text-text-primary text-[12px] font-medium shrink-0"
@@ -1699,6 +1835,7 @@ export default function Home() {
 
           {!isRecording ? (
             <button
+              data-tour="record-btn"
               onClick={handleStartRec}
               disabled={isEnhancing || isTranscribingRecording}
               className="btn-premium-rec press flex items-center gap-1.5 h-10 md:h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50 shrink-0"
@@ -1720,6 +1857,7 @@ export default function Home() {
           <div className="w-px h-5 bg-[var(--material-border)]" />
 
           <button
+            data-tour="enhance-btn"
             onClick={handleEnhance}
             disabled={isEnhancing || recordingBusy}
             className="btn-premium-accent press flex items-center gap-1.5 h-10 md:h-8 px-3.5 rounded-full text-white text-[12px] font-medium tracking-tight disabled:opacity-50 shrink-0"
@@ -1732,6 +1870,7 @@ export default function Home() {
           <div className="w-px h-5 bg-[var(--material-border)]" />
 
           <button
+            data-tour="pdf-btn"
             onClick={exportPdf}
             disabled={!title && !enhancedHtml}
             title="Esporta nota + enhanced in PDF"
@@ -1742,6 +1881,7 @@ export default function Home() {
           </button>
 
           <button
+            data-tour="ask-btn"
             onClick={() => setAskOpen(true)}
             disabled={!askAvailable}
             title="Ask AI — domande sul contenuto (nota enhanced + trascrizione)"
@@ -1793,6 +1933,7 @@ export default function Home() {
         onToggleTheme={toggleTheme}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSuggestions={() => setSuggestionsOpen(true)}
+        onOpenTour={() => setTourOpen(true)}
         enhanceShortcut={formatShortcut(shortcuts.enhance)}
       />
 
@@ -1808,6 +1949,26 @@ export default function Home() {
       <SuggestionsModal
         open={suggestionsOpen}
         onClose={() => setSuggestionsOpen(false)}
+      />
+
+      {/* ── Onboarding tour ──
+          Self-running interactive tutorial. First-time users see it
+          automatically (server-stamped + localStorage backup); ⌘+K → "Tour
+          interattivo" re-opens it any time, and /account → "Rifai il tour"
+          resets the server flag. */}
+      <OnboardingTour
+        open={tourOpen}
+        steps={tourSteps}
+        onClose={(completed) => {
+          setTourOpen(false);
+          try {
+            if (username) localStorage.setItem(`nota-onboarded:${username}`, "1");
+          } catch {}
+          // Fire-and-forget server stamp; failure falls back to the local
+          // flag above, so the tour still doesn't re-loop next reload.
+          void fetch("/api/account/onboarding?action=complete", { method: "POST" }).catch(() => {});
+          void completed;
+        }}
       />
 
       {/* ── Enhance Prompt Modal ── */}

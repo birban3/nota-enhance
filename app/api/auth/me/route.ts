@@ -37,5 +37,8 @@ export async function GET(req: NextRequest) {
     credits: billing?.credits ?? null,
     monthlyCredits: billing?.monthlyCredits ?? null,
     creditsPeriodStart: billing?.creditsPeriodStart ?? null,
+    // Drives the first-load onboarding trigger client-side. Null = never
+    // completed → the tour autoplays on mount.
+    onboardedAt: billing?.onboardedAt ?? null,
   });
 }

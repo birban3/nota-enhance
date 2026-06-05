@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Loader2, CreditCard, AlertTriangle, Check, X as XIcon,
-  ChevronRight, LogOut,
+  ChevronRight, LogOut, BookOpenCheck,
 } from "lucide-react";
 
 interface Plan {
@@ -182,6 +182,27 @@ function AccountInner() {
     } catch {
       setError("Errore di rete.");
     } finally {
+      setPending(null);
+    }
+  }
+
+  async function replayTour() {
+    setPending("tour");
+    try {
+      // Server: clear the onboarded_at stamp so the next /api/auth/me sees
+      // it as null and the app reopens the tour on next mount.
+      await fetch("/api/account/onboarding?action=reset", { method: "POST" });
+      // Local: drop the localStorage breadcrumb so the device-scoped
+      // fallback (used when PG isn't configured) also doesn't suppress it.
+      try {
+        if (data?.user.username) {
+          localStorage.removeItem(`nota-onboarded:${data.user.username}`);
+        }
+      } catch {}
+      // Go straight to the app so the user sees the tour immediately.
+      window.location.href = "/";
+    } catch {
+      setError("Errore di rete.");
       setPending(null);
     }
   }
@@ -411,8 +432,21 @@ function AccountInner() {
             </section>
           )}
 
-          {/* ── Logout ── */}
-          <section>
+          {/* ── Logout + tour replay ── */}
+          <section className="flex flex-wrap gap-2">
+            <button
+              onClick={replayTour}
+              disabled={pending !== null}
+              title="Rifai il tour interattivo al prossimo accesso all'app"
+              className="press inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-surface-2/60 hover:bg-surface-3/70 border border-[var(--material-border)] text-text-secondary hover:text-text-primary text-[13px] font-medium"
+            >
+              {pending === "tour" ? (
+                <Loader2 size={13} className="animate-spin-fast" />
+              ) : (
+                <BookOpenCheck size={13} />
+              )}
+              Rifai il tour
+            </button>
             <button
               onClick={logout}
               disabled={pending !== null}
