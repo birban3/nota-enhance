@@ -120,6 +120,7 @@ export function NotesSidebar({
 
           <motion.aside
             ref={asideRef}
+            data-tour="sidebar"
             className="fixed top-2 bottom-2 left-2 right-2 md:top-3 md:left-3 md:bottom-3 md:right-auto md:w-72 z-50 rounded-2xl material-thick shadow-float border flex flex-col overflow-hidden pt-safe"
             initial={{ opacity: 0, x: -16, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -135,6 +136,7 @@ export function NotesSidebar({
           </span>
           <div className="flex items-center gap-1.5">
             <button
+              data-tour="new-note-btn"
               onClick={onCreate}
               title="Nuova nota"
               className="press w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-full bg-surface-3/50 hover:bg-accent text-text-secondary hover:text-white"
@@ -270,6 +272,7 @@ export function NotesSidebar({
             </button>
           )}
           <Link
+            data-tour="account-link"
             href="/account"
             onClick={onClose}
             title="Account, abbonamento, crediti"

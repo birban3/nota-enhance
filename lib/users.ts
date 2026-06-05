@@ -19,6 +19,10 @@ export interface UserProfile {
   subscriptionStatus: string | null;  // 'active' | 'canceled' | …
   subscriptionPeriodEnd: number | null;
   stripeCustomerId: string | null;
+  /** Epoch ms when the user completed (or explicitly skipped) the onboarding
+   *  tour. null/undefined means the tour should be auto-triggered on next
+   *  load. We stamp it server-side so it persists across devices. */
+  onboardedAt: number | null;
 }
 
 export interface CreditTransaction {
@@ -39,6 +43,7 @@ interface ProfileRow {
   subscription_status: string | null;
   subscription_period_end: string | number | null;
   stripe_customer_id: string | null;
+  onboarded_at: string | number | null;
 }
 
 function rowToProfile(r: ProfileRow): UserProfile {
@@ -51,6 +56,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     subscriptionStatus: r.subscription_status ?? null,
     subscriptionPeriodEnd: r.subscription_period_end != null ? Number(r.subscription_period_end) : null,
     stripeCustomerId: r.stripe_customer_id,
+    onboardedAt: r.onboarded_at != null ? Number(r.onboarded_at) : null,
   };
 }
 
@@ -63,7 +69,7 @@ export async function getUserProfile(id: string): Promise<UserProfile | null> {
   const uid = id.trim().toLowerCase();
   const rows = (await client`
     SELECT id, plan, credits, monthly_credits, credits_period_start,
-           subscription_status, subscription_period_end, stripe_customer_id
+           subscription_status, subscription_period_end, stripe_customer_id, onboarded_at
     FROM users WHERE id = ${uid}
   `) as ProfileRow[];
   return rows[0] ? rowToProfile(rows[0]) : null;
@@ -90,7 +96,7 @@ export async function getUserByStripeCustomerId(customerId: string): Promise<Use
   const client = await db();
   const rows = (await client`
     SELECT id, plan, credits, monthly_credits, credits_period_start,
-           subscription_status, subscription_period_end, stripe_customer_id
+           subscription_status, subscription_period_end, stripe_customer_id, onboarded_at
     FROM users WHERE stripe_customer_id = ${customerId}
   `) as ProfileRow[];
   return rows[0] ? rowToProfile(rows[0]) : null;
@@ -134,6 +140,18 @@ export async function listCreditTransactions(
       createdAt: Number(r.created_at),
     };
   });
+}
+
+/**
+ * Mark the user's onboarding tour as complete (or reset it for a re-play).
+ * Passing `null` un-stamps it so the tour auto-triggers on next mount —
+ * used by the "Rifai il tour" button on /account.
+ */
+export async function setOnboardedAt(userId: string, ms: number | null): Promise<void> {
+  if (!userId || !pgConfigured()) return;
+  const client = await db();
+  const uid = userId.trim().toLowerCase();
+  await client`UPDATE users SET onboarded_at = ${ms} WHERE id = ${uid}`;
 }
 
 /**
