@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCredential, setCredential, type Credential } from "@/lib/credential-store";
 import { createSessionToken, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
+import { grantInitialCredits } from "@/lib/billing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,6 +168,10 @@ export async function GET(req: NextRequest) {
       console.error("Failed to create credential after Google login:", err);
       return errorRedirect(req, "Creazione account fallita.");
     }
+    // First time signing in with Google → bootstrap free-plan credits. No-op
+    // for repeat Google sign-ins (grantInitialCredits's WHERE-guard skips
+    // anyone whose credits_period_start is already set).
+    await grantInitialCredits(email, "free");
   }
 
   // Step 4: mint our session and redirect to the app.

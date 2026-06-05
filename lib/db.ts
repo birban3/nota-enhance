@@ -90,6 +90,62 @@ const SCHEMA_STATEMENTS: string[] = [
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS notes_user_idx ON notes (user_id)`,
+
+  // ── Billing tables ──
+  //
+  // `plans` and `credit_costs` are intentionally separate from code so the
+  // operator can change pricing / allowances / per-op costs with a single
+  // UPDATE — no redeploy. Both tables get a small set of defaults seeded
+  // (see SEED_STATEMENTS below) the first time the schema runs, then the
+  // operator's edits are preserved (the seed uses ON CONFLICT DO NOTHING).
+  //
+  // `credit_transactions` is the append-only audit log. Every grant
+  // (registration bonus, monthly reset, Stripe top-up) and every consumption
+  // (enhance / ask / transcribe) writes one row, with `balance_after` so we
+  // can reconstruct the user's history without re-aggregating.
+  `CREATE TABLE IF NOT EXISTS plans (
+    id                   TEXT PRIMARY KEY,
+    display_name         TEXT NOT NULL,
+    monthly_credits      INTEGER NOT NULL DEFAULT 0,
+    stripe_price_id      TEXT,
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE,
+    position             INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS credit_costs (
+    operation            TEXT PRIMARY KEY,
+    cost                 INTEGER NOT NULL DEFAULT 0,
+    description          TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS credit_transactions (
+    id                   BIGSERIAL PRIMARY KEY,
+    user_id              TEXT NOT NULL,
+    operation            TEXT NOT NULL,
+    amount               INTEGER NOT NULL,
+    balance_after        INTEGER NOT NULL,
+    metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at           BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS credit_tx_user_idx ON credit_transactions (user_id, created_at DESC)`,
+];
+
+// ── Seed defaults ──
+//
+// First-time setup: a free plan with a small allowance so new users can try
+// the app, a placeholder pro plan to be configured once you wire Stripe, and
+// a default cost of 1 credit per operation. All are ON CONFLICT DO NOTHING:
+// once you change them with UPDATE, your edits stick across redeploys.
+// Update the costs/allowances directly with SQL when you have your numbers —
+// no code change needed.
+const SEED_STATEMENTS: string[] = [
+  `INSERT INTO plans (id, display_name, monthly_credits, position) VALUES
+     ('free', 'Free', 20, 0),
+     ('pro',  'Pro',  500, 1)
+   ON CONFLICT (id) DO NOTHING`,
+  `INSERT INTO credit_costs (operation, cost, description) VALUES
+     ('enhance', 1, 'Una operazione di Enhance AI'),
+     ('ask',     1, 'Una domanda ad Ask AI'),
+     ('transcribe', 1, 'Una trascrizione (file o registrazione)')
+   ON CONFLICT (operation) DO NOTHING`,
 ];
 
 let schemaReady: Promise<void> | null = null;
@@ -101,6 +157,9 @@ export function ensureSchema(): Promise<void> {
   schemaReady = (async () => {
     const client = sql();
     for (const stmt of SCHEMA_STATEMENTS) {
+      await client.query(stmt);
+    }
+    for (const stmt of SEED_STATEMENTS) {
       await client.query(stmt);
     }
   })().catch((err) => {

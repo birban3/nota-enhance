@@ -135,6 +135,13 @@ export default function Home() {
   // resolved inside the hydration effect below (so it can gate the per-user
   // IDB ownership check); this state just mirrors it for the sidebar tooltip.
   const [username, setUsername] = useState<string | null>(null);
+  // Billing state — null when Postgres isn't configured (the credits chip is
+  // hidden in that case so the user sees no surprise). `credits` is what the
+  // header displays; we refresh it after each LLM call's response (`balance`
+  // field) so the user sees the live balance without polling /api/auth/me.
+  const [credits, setCredits] = useState<number | null>(null);
+  const [monthlyCredits, setMonthlyCredits] = useState<number | null>(null);
+  const [planName, setPlanName] = useState<string | null>(null);
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -175,8 +182,15 @@ export default function Home() {
     isRecording, recordTime, audioURL, transcript, setTranscript,
     startRecording, stopRecording, error: recError, clearError,
     importAudio, importedFileName, isTranscribingFile, isTranscribingRecording,
-    transcribeChunkProgress, getAnalyser,
+    transcribeChunkProgress, lastCreditBalance, getAnalyser,
   } = useAudioRecorder();
+
+  // Mirror the audio hook's reported balance into the page-level credits
+  // state. The hook updates `lastCreditBalance` after each /api/transcribe
+  // response (success or 402); this useEffect propagates that into the chip.
+  useEffect(() => {
+    if (lastCreditBalance != null) setCredits(lastCreditBalance);
+  }, [lastCreditBalance]);
 
   const displayError = appError || recError;
 
@@ -211,6 +225,13 @@ export default function Home() {
         const me = await meRes.json();
         const currentUser: string | null = me?.username || null;
         setUsername(currentUser);
+        // me.credits is null when Postgres isn't configured server-side; in
+        // that case we leave the chip hidden. Otherwise we adopt the
+        // server-side balance (which has already had the lazy monthly reset
+        // applied).
+        if (typeof me?.credits === "number") setCredits(me.credits);
+        if (typeof me?.monthlyCredits === "number") setMonthlyCredits(me.monthlyCredits);
+        if (typeof me?.planName === "string") setPlanName(me.planName);
         if (!currentUser) {
           // Middleware should have already redirected, but if we somehow
           // ended up here unauthenticated, do the bounce ourselves rather
@@ -909,7 +930,17 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Errore server");
+      if (!res.ok) {
+        // 402 = insufficient credits. The server returns the current balance
+        // so the UI can update without a separate /api/auth/me round-trip.
+        if (res.status === 402 && typeof data?.balance === "number") {
+          setCredits(data.balance);
+        }
+        throw new Error(data.error || "Errore server");
+      }
+
+      // Server-supplied post-debit balance — adopt so the chip is live.
+      if (typeof data?.balance === "number") setCredits(data.balance);
 
       const html = mdToHtml(data.enhanced);
       setEnhancedHtml(html);
@@ -1037,7 +1068,13 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Errore Ask AI");
+      if (!res.ok) {
+        if (res.status === 402 && typeof data?.balance === "number") {
+          setCredits(data.balance);
+        }
+        throw new Error(data.error || "Errore Ask AI");
+      }
+      if (typeof data?.balance === "number") setCredits(data.balance);
       setAskMessages([...next, { role: "assistant", content: data.answer }]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Errore Ask AI";
@@ -1366,6 +1403,32 @@ export default function Home() {
               access to the recording flow, and the player is too wide to fit). */}
           {audioURL && (
             <audio controls src={audioURL} className="hidden md:block h-8 opacity-70" style={{ maxWidth: 240 }} />
+          )}
+
+          {/* Credits chip — visible only when billing is active server-side
+              (credits !== null). Colour shifts to the warning hue when the
+              balance is below 10% of the monthly cap so the user notices.
+              Click is a no-op placeholder for the future "top up" / billing
+              page (Stripe wiring lands in a later step). */}
+          {credits != null && (
+            <div
+              title={
+                planName
+                  ? `${planName} · ${credits}${monthlyCredits ? `/${monthlyCredits}` : ""} crediti`
+                  : `${credits} crediti residui`
+              }
+              className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 md:px-3 rounded-full border text-[11px] font-mono tabular-nums ${
+                monthlyCredits && credits <= Math.max(1, Math.floor(monthlyCredits * 0.1))
+                  ? "bg-rec/10 border-rec/30 text-rec"
+                  : "bg-surface-2/60 border-[var(--material-border)] text-text-secondary"
+              }`}
+            >
+              <span className="text-text-faint">◇</span>
+              <span>{credits}</span>
+              {monthlyCredits ? (
+                <span className="text-text-faint">/{monthlyCredits}</span>
+              ) : null}
+            </div>
           )}
 
           <button

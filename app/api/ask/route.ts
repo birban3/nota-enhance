@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { consumeCredits, refundCredits } from "@/lib/billing";
 
 // Same reasoning as /api/enhance: OpenRouter calls can run long; the
 // 10s default would truncate. Pin Node runtime + dynamic so we don't
@@ -22,6 +24,9 @@ const MODEL = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash";
 interface ChatMsg { role: "user" | "assistant"; content: string; }
 
 export async function POST(req: NextRequest) {
+  let creditUser: string | null = null;
+  let debitedAmount = 0;
+
   try {
     if (!process.env.OPENROUTER_API_KEY) {
       return NextResponse.json(
@@ -42,6 +47,26 @@ export async function POST(req: NextRequest) {
     if (!ctx) {
       return NextResponse.json({ error: "Nessun contesto disponibile (serve nota enhanced o trascrizione)." }, { status: 400 });
     }
+
+    // Atomic credit reservation. See /api/enhance for the same pattern.
+    const sessionToken = req.cookies.get(SESSION_COOKIE)?.value;
+    const sessionUser = sessionToken ? await verifySessionToken(sessionToken) : null;
+    const billing = await consumeCredits(sessionUser ?? "", "ask");
+    if (!billing.ok) {
+      return NextResponse.json(
+        {
+          error:
+            billing.reason === "insufficient"
+              ? `Crediti insufficienti per Ask AI (servono ${billing.cost}, saldo ${billing.balance ?? 0}).`
+              : "Operazione non disponibile (verifica account).",
+          balance: billing.balance,
+          cost: billing.cost,
+        },
+        { status: 402 }
+      );
+    }
+    creditUser = sessionUser;
+    debitedAmount = billing.cost;
 
     const system = `Sei un assistente accademico. Rispondi alle domande dello studente usando ESCLUSIVAMENTE il contenuto fornito nel CONTESTO qui sotto.
 
@@ -89,9 +114,16 @@ ${ctx}
       return NextResponse.json({ error: "Risposta del modello vuota." }, { status: 502 });
     }
 
-    return NextResponse.json({ answer: text });
+    return NextResponse.json({
+      answer: text,
+      balance: billing.balance,
+      cost: billing.cost,
+    });
   } catch (err: unknown) {
     console.error("Ask API error:", err);
+    if (creditUser && debitedAmount > 0) {
+      await refundCredits(creditUser, "ask", debitedAmount);
+    }
     const status = (err as { status?: number })?.status;
     const message = err instanceof Error ? err.message : "Errore sconosciuto";
     if (status === 429) {

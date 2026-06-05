@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { consumeCredits, refundCredits } from "@/lib/billing";
 
 // OpenRouter → DeepSeek can take 20-40s on cold paths. Default Vercel
 // Lambda timeout (10s on hobby) truncates the response mid-stream and
@@ -44,6 +46,11 @@ function extractTitle(md: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Tracked outside the try so the catch block can refund if anything fails
+  // after we've already debited the user.
+  let creditUser: string | null = null;
+  let debitedAmount = 0;
+
   try {
     if (!process.env.OPENROUTER_API_KEY) {
       return NextResponse.json(
@@ -60,6 +67,36 @@ export async function POST(req: NextRequest) {
     if (!notes && !transcript) {
       return NextResponse.json({ error: "No content provided" }, { status: 400 });
     }
+
+    // ── Credits check ──
+    // Resolve the caller's identity from the session cookie (middleware
+    // already gates the route, but billing must read the username itself).
+    // Then atomically reserve the credit cost for this operation. If
+    // insufficient, surface 402 with the current balance so the UI can
+    // prompt to top up. When PG isn't configured the consume call
+    // short-circuits to ok=true (no enforcement) — keeps dev/staging
+    // working without billing wired up.
+    const sessionToken = req.cookies.get(SESSION_COOKIE)?.value;
+    const sessionUser = sessionToken ? await verifySessionToken(sessionToken) : null;
+    const billing = await consumeCredits(sessionUser ?? "", "enhance");
+    if (!billing.ok) {
+      return NextResponse.json(
+        {
+          error:
+            billing.reason === "insufficient"
+              ? `Crediti insufficienti per questa operazione (servono ${billing.cost}, saldo ${billing.balance ?? 0}).`
+              : "Operazione non disponibile (verifica account).",
+          balance: billing.balance,
+          cost: billing.cost,
+        },
+        { status: 402 }
+      );
+    }
+    // Remember the debit so the catch block can roll it back if the LLM
+    // call below fails. billing.cost is 0 when PG isn't configured, in
+    // which case refundCredits short-circuits.
+    creditUser = sessionUser;
+    debitedAmount = billing.cost;
 
     const hasNotes = !!notes?.trim();
     const hasTranscript = !!transcript?.trim();
@@ -211,9 +248,19 @@ Produci il riassunto in italiano, formato markdown.`;
     return NextResponse.json({
       enhanced: text,
       title: extractTitle(text),
+      // Surface the post-debit balance so the client can refresh its UI
+      // without a separate /api/auth/me round-trip. null when PG is off.
+      balance: billing.balance,
+      cost: billing.cost,
     });
   } catch (err: unknown) {
     console.error("Enhance API error:", err);
+    // Refund the credit we reserved — the user shouldn't pay for a request
+    // we couldn't deliver. No-op if no debit (e.g. error happened before
+    // consumeCredits, or PG isn't configured).
+    if (creditUser && debitedAmount > 0) {
+      await refundCredits(creditUser, "enhance", debitedAmount);
+    }
     const status = (err as { status?: number })?.status;
     const message = err instanceof Error ? err.message : "Unknown error";
     if (status === 429) {

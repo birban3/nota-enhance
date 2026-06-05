@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { del } from "@vercel/blob";
+import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { consumeCredits, refundCredits } from "@/lib/billing";
 
 // Groq Whisper — OpenAI-compatible, free tier generoso, veloce.
 // Get a key at https://console.groq.com/keys
@@ -81,6 +83,9 @@ async function handleBlobUrl(url: string, filename: string, contentType?: string
 }
 
 export async function POST(req: NextRequest) {
+  let creditUser: string | null = null;
+  let debitedAmount = 0;
+
   try {
     if (!process.env.GROQ_API_KEY) {
       return NextResponse.json(
@@ -88,6 +93,29 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Reserve the credit BEFORE pulling the (potentially large) audio
+    // payload — failing fast on insufficient balance saves the user a wasted
+    // upload. Cost is the configured `transcribe` rate; for chunked clients
+    // the per-chunk POST already aligns with one chunk = one debit.
+    const sessionToken = req.cookies.get(SESSION_COOKIE)?.value;
+    const sessionUser = sessionToken ? await verifySessionToken(sessionToken) : null;
+    const billing = await consumeCredits(sessionUser ?? "", "transcribe");
+    if (!billing.ok) {
+      return NextResponse.json(
+        {
+          error:
+            billing.reason === "insufficient"
+              ? `Crediti insufficienti per la trascrizione (servono ${billing.cost}, saldo ${billing.balance ?? 0}).`
+              : "Operazione non disponibile (verifica account).",
+          balance: billing.balance,
+          cost: billing.cost,
+        },
+        { status: 402 }
+      );
+    }
+    creditUser = sessionUser;
+    debitedAmount = billing.cost;
 
     const contentType = req.headers.get("content-type") || "";
     let audioFile: File | null = null;
@@ -136,9 +164,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ text });
+    return NextResponse.json({
+      text,
+      balance: billing.balance,
+      cost: billing.cost,
+    });
   } catch (err: unknown) {
     console.error("Transcribe API error:", err);
+    if (creditUser && debitedAmount > 0) {
+      await refundCredits(creditUser, "transcribe", debitedAmount);
+    }
     // OpenAI SDK errors carry a `status` and frequently a structured
     // `error.message` that's much more actionable than the SDK's
     // top-level `message`. Pass both back to the client so the toast
