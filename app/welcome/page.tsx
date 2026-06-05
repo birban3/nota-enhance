@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, Mic, FileDown, MessageCircle, ArrowRight } from "lucide-react";
+import { HeroBackground } from "./HeroBackground";
 
 // Public landing page — shown to unauthenticated visitors. Authenticated
 // users are redirected to "/" (the app) on mount, so a logged-in user
@@ -49,9 +50,13 @@ export default function WelcomePage() {
         </div>
       </header>
 
-      {/* ── Hero ── */}
-      <main className="flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
-        <section className="max-w-3xl mx-auto text-center">
+      {/* ── Hero ──
+          Background animation sits absolutely behind the hero copy; the
+          parent <main> is relative so the SVG anchors there. The animation
+          is decorative-only (aria-hidden + pointer-events:none). */}
+      <main className="relative flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
+        <HeroBackground />
+        <section className="relative max-w-3xl mx-auto text-center">
           {/* `text-balance` lets the browser pick line breaks that look more
               even — without it, large headlines often end up with a single
               short word stranded on the second line. */}

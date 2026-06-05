@@ -107,6 +107,26 @@ export async function getPlan(id: string): Promise<Plan | null> {
   return value;
 }
 
+/** Locate a plan by its Stripe price id. Used by the webhook so the operator
+ *  doesn't have to maintain a parallel mapping. */
+export async function getPlanByStripePriceId(priceId: string): Promise<Plan | null> {
+  if (!pgConfigured() || !priceId) return null;
+  const client = await db();
+  const rows = (await client`
+    SELECT id, display_name, monthly_credits, stripe_price_id, is_active, position
+    FROM plans WHERE stripe_price_id = ${priceId}
+  `) as PlanRow[];
+  if (!rows[0]) return null;
+  return {
+    id: rows[0].id,
+    displayName: rows[0].display_name,
+    monthlyCredits: rows[0].monthly_credits,
+    stripePriceId: rows[0].stripe_price_id,
+    isActive: rows[0].is_active,
+    position: rows[0].position,
+  };
+}
+
 export async function listActivePlans(): Promise<Plan[]> {
   if (!pgConfigured()) return [];
   const client = await db();
@@ -375,6 +395,72 @@ async function logTransaction(
     // Audit failures must never block the user — log and move on.
     console.warn("Credit transaction log failed:", err);
   }
+}
+
+// ── Stripe webhook hooks ──
+//
+// Called by /api/billing/webhook when the subscription state changes. These
+// are intentionally generic — they don't know about Stripe types or events,
+// just the local effects we want. The webhook handler translates Stripe
+// events into one of these calls.
+
+/**
+ * The user just paid (a new subscription started, or an invoice renewed).
+ * Switch them to the given plan, top up credits to the plan's
+ * monthly_credits, and stamp the period boundary.
+ */
+export async function activateSubscription(
+  userId: string,
+  planId: string,
+  subscriptionStatus: string,
+  periodEndMs: number
+): Promise<void> {
+  if (!pgConfigured() || !userId) return;
+  const plan = (await getPlan(planId)) ?? FALLBACK_PLAN;
+  const client = await db();
+  const uid = userId.trim().toLowerCase();
+  const t = now();
+  const rows = (await client`
+    UPDATE users
+      SET plan = ${plan.id},
+          credits = ${plan.monthlyCredits},
+          monthly_credits = ${plan.monthlyCredits},
+          credits_period_start = ${t},
+          subscription_status = ${subscriptionStatus},
+          subscription_period_end = ${periodEndMs}
+    WHERE id = ${uid}
+    RETURNING credits
+  `) as { credits: number }[];
+  if (rows.length > 0) {
+    await logTransaction(uid, "subscription_renewal", plan.monthlyCredits, plan.monthlyCredits, {
+      plan: plan.id,
+      status: subscriptionStatus,
+    });
+  }
+}
+
+/**
+ * Subscription canceled / lapsed. Revert to the free plan (so the user
+ * doesn't lose access entirely) and let the next monthly reset replenish
+ * with the free allowance.
+ */
+export async function deactivateSubscription(
+  userId: string,
+  reason: "canceled" | "payment_failed" | "lapsed"
+): Promise<void> {
+  if (!pgConfigured() || !userId) return;
+  const freePlan = (await getPlan("free")) ?? FALLBACK_PLAN;
+  const client = await db();
+  const uid = userId.trim().toLowerCase();
+  await client`
+    UPDATE users
+      SET plan = ${freePlan.id},
+          monthly_credits = ${freePlan.monthlyCredits},
+          subscription_status = ${reason},
+          subscription_period_end = NULL
+    WHERE id = ${uid}
+  `;
+  await logTransaction(uid, `subscription_${reason}`, 0, 0, { reason });
 }
 
 // Expose the fallback so callers (e.g. UI rendering when PG is off) can reason
