@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getCredential, setCredential } from "@/lib/credential-store";
 import { createSessionToken, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
+import { grantInitialCredits } from "@/lib/billing";
 
 // Node runtime: bcryptjs is too slow on edge.
 export const runtime = "nodejs";
@@ -108,6 +109,10 @@ export async function POST(req: NextRequest) {
       passwordHash,
       createdAt: Date.now(),
     });
+
+    // Stamp the new user with the free plan + its monthly credits. No-op
+    // when Postgres isn't configured (the user just doesn't get billing).
+    await grantInitialCredits(email, "free");
 
     const token = await createSessionToken(email);
     const res = NextResponse.json({ ok: true, email, firstName, lastName });

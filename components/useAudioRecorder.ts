@@ -169,7 +169,8 @@ async function splitAudioForTranscription(file: File): Promise<File[]> {
  */
 async function uploadAndTranscribe(
   file: File,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  onBalance?: (balance: number) => void
 ): Promise<string> {
   let chunks: File[];
   try {
@@ -190,13 +191,13 @@ async function uploadAndTranscribe(
 
   if (chunks.length === 1) {
     onProgress?.(1, 1);
-    return transcribeOne(chunks[0]);
+    return transcribeOne(chunks[0], onBalance);
   }
 
   const parts: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     onProgress?.(i + 1, chunks.length);
-    const text = await transcribeOne(chunks[i]);
+    const text = await transcribeOne(chunks[i], onBalance);
     if (text) parts.push(text);
   }
   // Single space between chunks: Whisper already trims whitespace per chunk,
@@ -206,7 +207,7 @@ async function uploadAndTranscribe(
 }
 
 /** Single-chunk upload + transcribe — formerly the body of uploadAndTranscribe. */
-async function transcribeOne(file: File): Promise<string> {
+async function transcribeOne(file: File, onBalance?: (balance: number) => void): Promise<string> {
   // ── Path A: Blob client upload, then handoff URL to /api/transcribe ──
   let blobError: unknown = null;
   let uploadSucceeded = false;
@@ -234,11 +235,17 @@ async function transcribeOne(file: File): Promise<string> {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // Server attaches `balance` on 402 so the UI can update the chip even
+      // on rejection; surface it before throwing.
+      const bal = (data as { balance?: number }).balance;
+      if (typeof bal === "number") onBalance?.(bal);
       throw new Error(
         (data as { error?: string }).error ||
         `Errore trascrizione (HTTP ${res.status})`
       );
     }
+    const bal = (data as { balance?: number }).balance;
+    if (typeof bal === "number") onBalance?.(bal);
     return (((data as { text?: string }).text) || "").trim();
   } catch (err) {
     blobError = err;
@@ -263,6 +270,8 @@ async function transcribeOne(file: File): Promise<string> {
     const res = await fetch("/api/transcribe", { method: "POST", body: formData });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      const bal = (data as { balance?: number }).balance;
+      if (typeof bal === "number") onBalance?.(bal);
       if (res.status === 413) {
         // Path A (Blob direct upload) is the one designed for files this
         // big — if we ended up here it failed for some other reason.
@@ -276,6 +285,8 @@ async function transcribeOne(file: File): Promise<string> {
       }
       throw new Error((data as { error?: string }).error || `Errore trascrizione (HTTP ${res.status})`);
     }
+    const bal = (data as { balance?: number }).balance;
+    if (typeof bal === "number") onBalance?.(bal);
     return (((data as { text?: string }).text) || "").trim();
   } catch (formErr) {
     // Both paths failed. Surface the most actionable error. If Path B's
@@ -308,6 +319,10 @@ interface UseAudioRecorderReturn {
   /** Chunk progress for files that had to be split (>25 MB). null when the
    *  current transcription is single-shot or no transcription is running. */
   transcribeChunkProgress: { current: number; total: number } | null;
+  /** Most recent credit balance reported by /api/transcribe (null when
+   *  billing is off or no transcribe has happened yet). The page watches this
+   *  to keep its credits chip in sync without polling /api/auth/me. */
+  lastCreditBalance: number | null;
   getAnalyser: () => AnalyserNode | null;
 }
 
@@ -335,6 +350,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   // Multi-chunk progress for >25 MB inputs. Only exposed (non-null) when the
   // file actually had to be split, so single-shot uploads don't flash a 1/1
   // pill in the header.
+  const [lastCreditBalance, setLastCreditBalance] = useState<number | null>(null);
   const [transcribeChunkProgress, setTranscribeChunkProgress] = useState<{
     current: number;
     total: number;
@@ -354,9 +370,13 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setIsTranscribingRecording(true);
     try {
       const file = new File([blob], filename, { type: blob.type || "audio/webm" });
-      const text = await uploadAndTranscribe(file, (cur, total) => {
-        setTranscribeChunkProgress(total > 1 ? { current: cur, total } : null);
-      });
+      const text = await uploadAndTranscribe(
+        file,
+        (cur, total) => {
+          setTranscribeChunkProgress(total > 1 ? { current: cur, total } : null);
+        },
+        (bal) => setLastCreditBalance(bal)
+      );
       if (text) {
         setTranscript((prev) => (prev ? prev.trim() + "\n\n" + text : text));
       }
@@ -478,9 +498,13 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setIsTranscribingFile(true);
 
     try {
-      const text = await uploadAndTranscribe(file, (cur, total) => {
-        setTranscribeChunkProgress(total > 1 ? { current: cur, total } : null);
-      });
+      const text = await uploadAndTranscribe(
+        file,
+        (cur, total) => {
+          setTranscribeChunkProgress(total > 1 ? { current: cur, total } : null);
+        },
+        (bal) => setLastCreditBalance(bal)
+      );
       if (text) {
         // When the caller passes a label (multi-file import flow), prepend
         // it as a divider so the transcript stays navigable. Single-file
@@ -513,6 +537,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     isTranscribingFile,
     isTranscribingRecording,
     transcribeChunkProgress,
+    lastCreditBalance,
     getAnalyser,
   };
 }
