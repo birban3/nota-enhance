@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, RotateCcw, Keyboard } from "lucide-react";
+import { X, RotateCcw, Keyboard, Smartphone } from "lucide-react";
 import {
   DEFAULT_SHORTCUTS,
   SHORTCUT_LABELS,
@@ -18,6 +18,21 @@ interface Props {
   shortcuts: Record<ShortcutId, Shortcut>;
   onChange: (next: Record<ShortcutId, Shortcut>) => void;
 }
+
+// Markdown-only formatting reference — works the same on desktop and mobile,
+// so both views can render it (desktop uses it as a "tip alongside the
+// shortcut", mobile as the primary affordance).
+const FORMATTING_REF: { label: string; keys: string; md?: string }[] = [
+  { label: "Grassetto", keys: "⌘ B", md: "**testo**" },
+  { label: "Corsivo", keys: "⌘ I", md: "*testo*" },
+  { label: "Sottolineato", keys: "⌘ U" },
+  { label: "Evidenziato", keys: "⌘ E" },
+  { label: "Titolo 1", keys: "⌘ ⌥ 1", md: "# " },
+  { label: "Titolo 2", keys: "⌘ ⌥ 2", md: "## " },
+  { label: "Titolo 3", keys: "⌘ ⌥ 3", md: "### " },
+  { label: "Elenco puntato", keys: "⌘ ⇧ 8", md: "- " },
+  { label: "Citazione", keys: "⌘ ⇧ B", md: "> " },
+];
 
 export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
   const [recordingId, setRecordingId] = useState<ShortcutId | null>(null);
@@ -46,6 +61,13 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
     return () => document.removeEventListener("keydown", handler, true);
   }, [open, recordingId, shortcuts, onChange, onClose]);
 
+  // Cancel any in-progress shortcut rebinding when the modal closes so
+  // reopening doesn't keep listening for a key that the user already moved on
+  // from.
+  useEffect(() => {
+    if (!open) setRecordingId(null);
+  }, [open]);
+
   const ids = Object.keys(SHORTCUT_LABELS) as ShortcutId[];
 
   return (
@@ -67,20 +89,71 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
             exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
           >
-            {/* Header */}
+            {/* Header — adapts copy to the device: desktop shows "Scorciatoie
+                da tastiera" because the body lets you remap them; mobile shows
+                "Impostazioni" because the body is just a Markdown reference
+                (no rebinding without a hardware keyboard). */}
             <div className="px-4 md:px-5 h-14 border-b border-[var(--material-border)] flex items-center gap-3 shrink-0">
-              <Keyboard size={16} className="text-text-muted" />
+              <Keyboard size={16} className="text-text-muted hidden md:block" />
+              <Smartphone size={16} className="text-text-muted md:hidden" />
               <span className="text-[14px] font-semibold text-text-emphasis tracking-tight">
-                Scorciatoie da tastiera
+                <span className="hidden md:inline">Scorciatoie da tastiera</span>
+                <span className="md:hidden">Impostazioni</span>
               </span>
               <div className="flex-1" />
-              <button onClick={onClose} className="press w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary">
+              <button
+                onClick={onClose}
+                className="press w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-surface-3/60 text-text-muted hover:text-text-primary"
+              >
                 <X size={16} />
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-3 flex-1 overflow-y-auto">
+            {/* ═══════ Mobile body ═══════
+                Visible only below md. Skips everything keyboard-related —
+                rebinding is impossible without a hardware keyboard, and the
+                modifier-key chips ("⌘ B") would just confuse a touch user.
+                What's left is the part that's genuinely useful on a phone:
+                the Markdown shortcuts that work inside the editor regardless
+                of device. */}
+            <div className="md:hidden p-4 flex-1 overflow-y-auto">
+              <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
+                Le scorciatoie da tastiera funzionano solo su desktop. Sul
+                telefono usa i pulsanti dell&apos;app o scrivi i caratteri qui
+                sotto nell&apos;editor.
+              </p>
+
+              <div className="text-[11px] font-semibold text-text-muted uppercase tracking-[0.14em] mb-2 px-1">
+                Formattazione (Markdown)
+              </div>
+              <ul className="space-y-1">
+                {FORMATTING_REF.filter((s) => s.md).map((s) => (
+                  <li
+                    key={s.label}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-surface-2/40 border border-[var(--material-border)]"
+                  >
+                    <span className="text-[13.5px] text-text-primary">
+                      {s.label}
+                    </span>
+                    <span className="text-[12px] font-mono text-text-secondary bg-surface-1/80 border border-[var(--material-border)] rounded-md px-2 py-1 whitespace-nowrap">
+                      {s.md}
+                    </span>
+                  </li>
+                ))}
+                {/* Sottolineato + Evidenziato don't have Markdown equivalents
+                    in the editor's parser; mention them as a footnote so the
+                    user knows they're not missing. */}
+                <li className="text-[11px] text-text-faint px-2 pt-2 leading-relaxed">
+                  Per sottolineato ed evidenziato apri la nota su desktop.
+                </li>
+              </ul>
+            </div>
+
+            {/* ═══════ Desktop body ═══════
+                Hidden below md. The original rebindable-shortcut UI lives
+                here unchanged — clicking a chip starts capturing the next
+                key combo (see the keydown listener at the top). */}
+            <div className="hidden md:flex p-3 flex-1 overflow-y-auto flex-col">
               <p className="text-[12px] text-text-muted px-2 pb-3 leading-relaxed">
                 Clicca su una scorciatoia per riassegnarla. Premi <span className="font-mono text-text-secondary">Esc</span> per annullare.
               </p>
@@ -128,23 +201,13 @@ export function SettingsModal({ open, onClose, shortcuts, onChange }: Props) {
                 Ripristina tutte le scorciatoie ai default
               </button>
 
-              {/* Formatting Shortcuts */}
+              {/* Formatting Shortcuts (desktop only) */}
               <div className="mt-8 mb-2 px-2 flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-text-primary tracking-tight">Formattazione Editor</span>
                 <span className="text-[9px] bg-surface-2 px-1.5 py-0.5 rounded text-text-faint uppercase tracking-widest font-semibold border border-[var(--material-border)]">Non modificabili</span>
               </div>
               <ul className="space-y-1 mb-2">
-                {[
-                  { label: "Grassetto", keys: "⌘ B", md: "**testo**" },
-                  { label: "Corsivo", keys: "⌘ I", md: "*testo*" },
-                  { label: "Sottolineato", keys: "⌘ U" },
-                  { label: "Evidenziato", keys: "⌘ E" },
-                  { label: "Titolo 1", keys: "⌘ ⌥ 1", md: "# " },
-                  { label: "Titolo 2", keys: "⌘ ⌥ 2", md: "## " },
-                  { label: "Titolo 3", keys: "⌘ ⌥ 3", md: "### " },
-                  { label: "Elenco puntato", keys: "⌘ ⇧ 8", md: "- " },
-                  { label: "Citazione", keys: "⌘ ⇧ B", md: "> " },
-                ].map((s) => (
+                {FORMATTING_REF.map((s) => (
                   <li key={s.label} className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors">
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <span className="text-[13px] text-text-secondary">{s.label}</span>
