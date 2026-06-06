@@ -1131,7 +1131,14 @@ export default function Home() {
   const exportPdf = useCallback(() => {
     try {
       snapshot();
-      const notesHtml = mdToHtml(notesRef.current?.getMarkdown() || "");
+      // PDF export ships ONLY the enhanced version of the note — never the
+      // raw notes. Enhancing is the paid step, so requiring it before a
+      // shareable PDF can be produced keeps the value (and the billing)
+      // tied to the AI output.
+      if (!enhancedHtml) {
+        setAppError("Per esportare in PDF esegui prima l'Enhance della nota.");
+        return;
+      }
       // Full HTML-escape for the title — it lands in two places in the
       // print iframe (`<title>…</title>` and `<h1>…</h1>`), and a stray
       // `&` would corrupt the parser. The previous `.replace(/[<>]/g, "")`
@@ -1140,11 +1147,6 @@ export default function Home() {
       const created = new Date().toLocaleString("it-IT", {
         day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
       });
-
-      if (!notesHtml && !enhancedHtml) {
-        setAppError("Niente da esportare: la nota è vuota.");
-        return;
-      }
 
       // Self-contained CSS. We tried extracting `document.styleSheets` from
       // the parent page so the print iframe inherited Tiptap + Tailwind
@@ -1222,12 +1224,15 @@ export default function Home() {
         }
       `;
 
+      // Enhanced-only document: title + date + the enhanced content. No
+      // "Note"/"Enhanced" section labels — there's a single section now, so
+      // the labels would just be noise. The enhanced HTML already opens with
+      // its own H2 heading from the model.
       const body = `
         <div class="pdf-export-root">
           <h1>${titleSafe}</h1>
           <div class="pdf-meta">${created}</div>
-          ${notesHtml ? `<div class="pdf-section-label">Note</div>${notesHtml}` : ""}
-          ${enhancedHtml ? `<div class="pdf-section-label">Enhanced</div>${enhancedHtml}` : ""}
+          ${enhancedHtml}
         </div>
       `;
 
@@ -1427,7 +1432,7 @@ export default function Home() {
       {
         id: "pdf",
         title: "Esporta in PDF",
-        body: "Quando sei pronto per ripassare offline (o stampare), esporti la nota e l'enhanced in un PDF.",
+        body: "Dopo l'Enhance puoi esportare la nota pulita in PDF — pronta da ripassare offline, stampare o condividere.",
         target: "pdf-btn",
         placement: "top",
         beforeShow: closeSidebar,
@@ -1893,8 +1898,8 @@ export default function Home() {
           <button
             data-tour="pdf-btn"
             onClick={exportPdf}
-            disabled={!title && !enhancedHtml}
-            title="Esporta nota + enhanced in PDF"
+            disabled={!enhancedHtml}
+            title={enhancedHtml ? "Esporta la nota enhanced in PDF" : "Esegui prima l'Enhance per esportare in PDF"}
             className="press flex items-center gap-1.5 h-10 md:h-8 px-3 rounded-full hover:bg-surface-3/60 disabled:opacity-30 text-text-secondary hover:text-text-primary text-[12px] font-medium shrink-0"
           >
             <FileDown size={15} />
