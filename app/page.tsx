@@ -163,6 +163,22 @@ export default function Home() {
     window.location.href = "/login";
   }, []);
 
+  // Stable handler for the tour's close (completes / skips). Capturing
+  // `username` from closure means it gets the latest value on each render,
+  // but the callback identity itself is stable across renders — important
+  // because OnboardingTour uses it in a useEffect dependency.
+  const usernameRef = useRef<string | null>(null);
+  useEffect(() => { usernameRef.current = username; }, [username]);
+  const handleTourClose = useCallback(() => {
+    setTourOpen(false);
+    try {
+      const u = usernameRef.current;
+      if (u) localStorage.setItem(`nota-onboarded:${u}`, "1");
+    } catch {}
+    // Fire-and-forget server stamp; failure falls back to the local flag.
+    void fetch("/api/account/onboarding?action=complete", { method: "POST" }).catch(() => {});
+  }, []);
+
   // Ask AI
   const [askOpen, setAskOpen] = useState(false);
   const [askInput, setAskInput] = useState("");
@@ -1956,20 +1972,17 @@ export default function Home() {
           automatically (server-stamped + localStorage backup); ⌘+K → "Tour
           interattivo" re-opens it any time, and /account → "Rifai il tour"
           resets the server flag. */}
-      <OnboardingTour
-        open={tourOpen}
-        steps={tourSteps}
-        onClose={(completed) => {
-          setTourOpen(false);
-          try {
-            if (username) localStorage.setItem(`nota-onboarded:${username}`, "1");
-          } catch {}
-          // Fire-and-forget server stamp; failure falls back to the local
-          // flag above, so the tour still doesn't re-loop next reload.
-          void fetch("/api/account/onboarding?action=complete", { method: "POST" }).catch(() => {});
-          void completed;
-        }}
-      />
+      {/* Mount on-demand. When closed, no hooks fire (the component isn't in
+          the tree at all) so there's zero risk of a hook-count mismatch
+          across renders. handleTourClose is useCallback'd so the tour's
+          internal effects don't churn between renders either. */}
+      {tourOpen && (
+        <OnboardingTour
+          open={tourOpen}
+          steps={tourSteps}
+          onClose={handleTourClose}
+        />
+      )}
 
       {/* ── Enhance Prompt Modal ── */}
       <AnimatePresence>
