@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useLayoutEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ArrowLeft, X, Sparkles, Check } from "lucide-react";
 
@@ -56,6 +56,19 @@ const TOOLTIP_H_ESTIMATE = 200;
 const SPOTLIGHT_PADDING = 8;
 const VIEWPORT_MARGIN = 16;
 
+// The app sets `html { zoom: 1.15 }` on desktop (globals.css). Under CSS
+// zoom, getBoundingClientRect(), offsetWidth/Height and the `top`/`left` we
+// write are all in LAYOUT pixels (pre-zoom) and agree with each other — but
+// window.innerWidth/innerHeight report VISUAL (device) pixels. Mixing the two
+// in the viewport-clamp math placed the card ~zoom× too low, pushing the
+// footer (Avanti button) off-screen. Dividing the visual viewport by the
+// zoom factor brings everything into the same layout-pixel space.
+function getZoom(): number {
+  if (typeof window === "undefined") return 1;
+  const z = parseFloat(getComputedStyle(document.documentElement).zoom || "1");
+  return z && !Number.isNaN(z) ? z : 1;
+}
+
 function getRectFor(selector: string): Rect | null {
   if (typeof document === "undefined") return null;
   const el = document.querySelector<HTMLElement>(`[data-tour="${selector}"]`);
@@ -77,17 +90,19 @@ function placeTooltip(
   rect: Rect | null,
   preferred: TourStep["placement"]
 ): { top: number; left: number } {
+  const zoom = getZoom();
   if (!rect || typeof window === "undefined") {
-    const w = typeof window !== "undefined" ? window.innerWidth : 1024;
-    const h = typeof window !== "undefined" ? window.innerHeight : 768;
+    const w = typeof window !== "undefined" ? window.innerWidth / zoom : 1024;
+    const h = typeof window !== "undefined" ? window.innerHeight / zoom : 768;
     return {
       top: Math.max(VIEWPORT_MARGIN, (h - TOOLTIP_H_ESTIMATE) / 2),
       left: Math.max(VIEWPORT_MARGIN, (w - TOOLTIP_W) / 2),
     };
   }
 
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  // Layout-pixel viewport (see getZoom): rect is already layout px.
+  const vw = window.innerWidth / zoom;
+  const vh = window.innerHeight / zoom;
   const room = {
     top: rect.top - VIEWPORT_MARGIN,
     bottom: vh - (rect.top + rect.height) - VIEWPORT_MARGIN,
@@ -213,7 +228,66 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
 
   const placement = useMemo(() => placeTooltip(rect, step?.placement), [rect, step?.placement]);
 
+  // `placement` uses an ESTIMATED card height (TOOLTIP_H_ESTIMATE) for its
+  // viewport clamp. When the real card is taller than the estimate — long
+  // body text, narrow screens where text wraps, or a step anchored to a
+  // huge target like the editor pane — the bottom (with the Avanti button)
+  // overflowed off-screen. After the card renders we measure its true
+  // layout size and re-clamp so it's always fully inside the viewport. We
+  // use offsetWidth/Height (not getBoundingClientRect) so framer-motion's
+  // entry scale transform doesn't skew the measurement.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el || typeof window === "undefined") return;
+    // Layout-pixel viewport — offsetWidth/Height and the top/left we set are
+    // already layout px; only innerWidth/Height need the zoom division.
+    const zoom = getZoom();
+    const vw = window.innerWidth / zoom;
+    const vh = window.innerHeight / zoom;
+    const h = el.offsetHeight;
+    const w = el.offsetWidth;
+    let top = placement.top;
+    let left = placement.left;
+    let maxHeight: number | undefined;
+    // If the card is taller than the usable viewport, pin it to the top
+    // margin and cap its height (its body scrolls internally) so the footer
+    // buttons stay reachable. Otherwise clamp so the whole card fits.
+    const usableH = vh - VIEWPORT_MARGIN * 2;
+    if (h > usableH) {
+      top = VIEWPORT_MARGIN;
+      maxHeight = usableH;
+    } else {
+      top = Math.max(VIEWPORT_MARGIN, Math.min(top, vh - h - VIEWPORT_MARGIN));
+    }
+    left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - w - VIEWPORT_MARGIN));
+    // Guard against an update loop: only commit when something actually
+    // moved by more than a sub-pixel.
+    setPos((prev) => {
+      if (
+        prev &&
+        Math.abs(prev.top - top) < 0.5 &&
+        Math.abs(prev.left - left) < 0.5 &&
+        prev.maxHeight === maxHeight
+      ) {
+        return prev;
+      }
+      return { top, left, maxHeight };
+    });
+  }, [placement.top, placement.left, index, ready, rect]);
+
+  // NB: no separate "reset pos on step change" effect. A passive useEffect
+  // would run AFTER this useLayoutEffect and null out the correction it just
+  // computed (the layout effect wouldn't re-run because its deps didn't
+  // change), leaving the card on the estimate-based position → off-screen.
+  // The layout effect already recomputes before paint whenever the step /
+  // placement / rect changes, so there's no flash to guard against.
+
   if (!open || !step) return null;
+
+  const cardPos: { top: number; left: number; maxHeight?: number } = pos ?? placement;
 
   const isLast = index === steps.length - 1;
   const isFirst = index === 0;
@@ -256,13 +330,15 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
 
           {ready && (
             <motion.div
+              ref={cardRef}
               key={`card-${step.id}`}
-              className="fixed material-thick rounded-2xl border shadow-float p-5"
+              className="fixed material-thick rounded-2xl border shadow-float p-5 overflow-y-auto"
               style={{
-                top: placement.top,
-                left: placement.left,
+                top: cardPos.top,
+                left: cardPos.left,
                 width: TOOLTIP_W,
                 maxWidth: "calc(100vw - 32px)",
+                maxHeight: cardPos.maxHeight,
               }}
               initial={{ opacity: 0, scale: 0.96, y: 4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
