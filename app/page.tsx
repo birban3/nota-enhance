@@ -1346,10 +1346,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, [isEnhancing, isRecording, handleEnhance, handleCreateNote, shortcuts]);
 
-  if (!hydrated) {
-    return <div className="h-dvh flex items-center justify-center text-text-muted text-sm">Caricamento…</div>;
-  }
-
   const activeNote = archive.find((n) => n.id === activeId);
   const recordingBusy = isRecording || isTranscribingRecording;
 
@@ -1461,6 +1457,15 @@ export default function Home() {
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Loading guard MUST come after every hook above. React requires the same
+  // hooks in the same order on every render; an early return placed before
+  // any hook (as `tourSteps`'s useMemo previously was) makes the hook count
+  // jump from "fewer" (pre-hydrate, early return) to "more" (post-hydrate),
+  // which is React error #310. Keep all hooks above this line.
+  if (!hydrated) {
+    return <div className="h-dvh flex items-center justify-center text-text-muted text-sm">Caricamento…</div>;
+  }
 
   return (
     // h-dvh (dynamic viewport) instead of h-screen so iOS Safari's
