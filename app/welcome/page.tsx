@@ -25,13 +25,18 @@ export default function WelcomePage() {
   }, [router]);
 
   return (
-    <div className="relative min-h-dvh bg-surface-0 text-text-primary flex flex-col overflow-x-hidden">
+    // No `overflow-x: hidden` here — iOS Safari has long-standing bugs where
+    // an `overflow-x:hidden` child of body silently kills vertical document
+    // scroll. The radial glow below is constrained to `100vw` so we don't
+    // need horizontal clipping at all.
+    <div className="relative min-h-dvh bg-surface-0 text-text-primary flex flex-col">
       {/* Soft ambient glow behind the hero. A single low-opacity radial
           gradient — calm and premium, no animated SVG. Decorative only
-          (aria-hidden) and click-through (pointer-events:none). */}
+          (aria-hidden) and click-through (pointer-events:none). Width
+          capped at 100vw so it never produces horizontal overflow. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -z-0 w-[760px] max-w-[140vw] h-[460px]"
+        className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -z-0 w-[760px] max-w-full h-[460px]"
         style={{
           background:
             "radial-gradient(50% 60% at 50% 30%, rgba(168,67,9,0.12), rgba(168,67,9,0.04) 45%, transparent 72%)",
