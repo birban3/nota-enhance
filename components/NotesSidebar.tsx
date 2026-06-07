@@ -88,13 +88,24 @@ export function NotesSidebar({
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  // Strip HTML tags so a search matches the visible text of the enhanced
+  // note, not its markup (e.g. searching "storia" shouldn't miss a word
+  // that's inside a <strong> tag).
+  const plainText = (html: string) =>
+    html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+
   const filtered = query.trim()
     ? sorted.filter((n) => {
         const q = query.toLowerCase();
+        // Search across the full text of the note: title, raw notes,
+        // transcript AND the enhanced version (HTML stripped). Previously
+        // only title/notes/transcript were searched, so content that lived
+        // only in the enhanced output couldn't be found.
         return (
           n.title.toLowerCase().includes(q) ||
           n.notes.toLowerCase().includes(q) ||
-          n.transcript.toLowerCase().includes(q)
+          n.transcript.toLowerCase().includes(q) ||
+          plainText(n.enhancedHtml || "").toLowerCase().includes(q)
         );
       })
     : sorted;

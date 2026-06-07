@@ -12,6 +12,10 @@ export interface Command {
   icon: React.ReactNode;
   action: () => void;
   group: "Azioni" | "Note";
+  /** Extra haystack for filtering beyond the visible label. For note
+   *  commands this holds the full note body (notes + transcript + enhanced
+   *  text) so search matches content, not just the title. */
+  searchText?: string;
 }
 
 interface Props {
@@ -57,6 +61,7 @@ export function CommandPalette({
         : []),
       { id: "account", label: "Account, abbonamento, crediti", icon: <UserIcon size={14} />, group: "Azioni", action: () => { window.location.href = "/account"; } },
     ];
+    const stripTags = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
     const noteCmds: Command[] = [...notes]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((n) => ({
@@ -66,6 +71,9 @@ export function CommandPalette({
         icon: <FileText size={14} />,
         group: "Note" as const,
         action: () => onSelectNote(n.id),
+        // Full-text haystack so ⌘K finds notes by their content, not just
+        // the title: raw notes + transcript + enhanced (HTML stripped).
+        searchText: `${n.title} ${n.notes} ${n.transcript} ${stripTags(n.enhancedHtml || "")}`.toLowerCase(),
       }));
     return [...actions, ...noteCmds];
   }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, onOpenSuggestions, onOpenTour, enhanceShortcut]);
@@ -73,7 +81,9 @@ export function CommandPalette({
   const filtered = useMemo(() => {
     if (!query.trim()) return allCommands;
     const q = query.toLowerCase();
-    return allCommands.filter((c) => c.label.toLowerCase().includes(q));
+    return allCommands.filter(
+      (c) => c.label.toLowerCase().includes(q) || (c.searchText?.includes(q) ?? false)
+    );
   }, [allCommands, query]);
 
   // Reset on open

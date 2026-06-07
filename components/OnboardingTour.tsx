@@ -78,11 +78,20 @@ function getRectFor(selector: string): Rect | null {
   // display:none because we're below md). The caller treats null as
   // "skip the spotlight, show a centred card".
   if (r.width === 0 || r.height === 0) return null;
+  // getBoundingClientRect() returns VISUAL pixels (post-zoom), but the CSS
+  // top/left/width/height we write for the spotlight are LAYOUT pixels and
+  // get multiplied by html{zoom:1.15} at render. Without dividing, the
+  // spotlight rendered ~1.15× off the target on desktop (step 11 measured:
+  // target top=730 visual, spotlight rendering at 824 = 716×1.15). Dividing
+  // by the zoom factor puts the rect in layout space so the CSS engine's own
+  // ×zoom lands it back on the target. Mobile is zoom:1 → no-op (where the
+  // bug never appeared).
+  const z = getZoom();
   return {
-    top: r.top - SPOTLIGHT_PADDING,
-    left: r.left - SPOTLIGHT_PADDING,
-    width: r.width + SPOTLIGHT_PADDING * 2,
-    height: r.height + SPOTLIGHT_PADDING * 2,
+    top: r.top / z - SPOTLIGHT_PADDING,
+    left: r.left / z - SPOTLIGHT_PADDING,
+    width: r.width / z + SPOTLIGHT_PADDING * 2,
+    height: r.height / z + SPOTLIGHT_PADDING * 2,
   };
 }
 
@@ -197,7 +206,22 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
     const el = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
     const ro = el ? new ResizeObserver(schedule) : null;
     if (el && ro) ro.observe(el);
+    // Settle-loop: re-read the rect every frame for the first 600 ms after a
+    // step appears. Transform-based animations (the sidebar's slide-in
+    // spring) don't trigger resize/scroll/ResizeObserver — the element's box
+    // size and DOM position are unchanged, only an ancestor's transform
+    // moved it — so without this the spotlight stuck to the pre-animation
+    // position for ~half a second on sidebar-anchored steps.
+    let alive = true;
+    const start = performance.now();
+    const settle = () => {
+      if (!alive) return;
+      tick();
+      if (performance.now() - start < 600) requestAnimationFrame(settle);
+    };
+    requestAnimationFrame(settle);
     return () => {
+      alive = false;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
