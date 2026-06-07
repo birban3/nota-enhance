@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ArrowLeft, X, Sparkles, Check } from "lucide-react";
+import { BrandWordmark, BRAND_LOADER_MIN_MS } from "./BrandLoader";
 
 /**
  * Interactive product tour for the editor app.
@@ -159,14 +160,20 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [ready, setReady] = useState(false);
+  // Branded typewriter intro — the same "nota / enhance" splash as page loads,
+  // played once each time the tour opens before the first step appears.
+  const [intro, setIntro] = useState(true);
 
   const step = steps[index];
 
-  // Reset when reopened — restart from step 0.
+  // Reset when reopened — restart from step 0 and replay the intro splash.
   useEffect(() => {
     if (open) {
       setIndex(0);
       setReady(false);
+      setIntro(true);
+      const t = setTimeout(() => setIntro(false), BRAND_LOADER_MIN_MS);
+      return () => clearTimeout(t);
     }
   }, [open]);
 
@@ -271,8 +278,25 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-[80]" aria-modal="true" role="dialog">
+          {/* Branded typewriter intro — shown when the tour first opens, then
+              fades out to reveal the first step. */}
+          <AnimatePresence>
+            {intro && (
+              <motion.div
+                key="tour-intro"
+                className="fixed inset-0 z-10 bg-surface-0 flex items-center justify-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <BrandWordmark className="text-2xl md:text-3xl" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Spotlight (highlights the target) or plain backdrop (centred steps). */}
-          {rect && ready ? (
+          {!intro && rect && ready ? (
             <motion.div
               key={`spot-${step.id}`}
               className="fixed pointer-events-none"
@@ -303,7 +327,7 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
           {/* Click-anywhere-outside-card to dismiss. */}
           <div className="fixed inset-0" onClick={() => onClose(false)} />
 
-          {ready && (
+          {!intro && ready && (
             // Flex dock — the card is parked at the top, bottom or centre of
             // the viewport via flex alignment, never with `top:` / `left:`
             // pixel math. The card itself caps at `max-h-full` and its body
