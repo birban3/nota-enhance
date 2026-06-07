@@ -14,7 +14,7 @@ import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
-  FileDown, MessageCircle, Send, Search, Plus,
+  FileDown, MessageCircle, Send, Search, Plus, Pencil,
 } from "lucide-react";
 import type { TiptapHandle } from "@/components/TiptapEditor";
 import {
@@ -104,6 +104,7 @@ export default function Home() {
   const enhancedRef = useRef<TiptapHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sidebarHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enhanceTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSidebarHoverEnter = useCallback(() => {
     if (sidebarHoverRef.current) { clearTimeout(sidebarHoverRef.current); sidebarHoverRef.current = null; }
@@ -1073,6 +1074,16 @@ export default function Home() {
     setEnhanceInstructions(t.instructions);
   }, []);
 
+  // "Custom" chip — clears the textarea to a blank slate and focuses it so the
+  // user can write their own instructions from scratch. Once they type and
+  // hit "Salva come template" it becomes a named custom chip; the Custom chip
+  // stays around (blank again) to spin up the next one.
+  const startCustomTemplate = useCallback(() => {
+    setEnhanceInstructions("");
+    // Focus after the state flush so the cursor lands in the now-empty field.
+    requestAnimationFrame(() => enhanceTextareaRef.current?.focus());
+  }, []);
+
   // A template is "active" while the textarea's text matches its instructions
   // exactly — i.e. the user clicked it and hasn't typed since. The mobile
   // chips use this to highlight the selected one in the accent border, and
@@ -1082,6 +1093,9 @@ export default function Home() {
   const activeTemplate = trimmedInstr
     ? [...defaultTemplates, ...customTemplates].find((t) => t.instructions.trim() === trimmedInstr) ?? null
     : null;
+  // The Custom chip is selected whenever no saved template matches what's in
+  // the textarea — i.e. an empty field (fresh custom) or free-typed text.
+  const customActive = !activeTemplate;
 
   const saveCurrentAsTemplate = useCallback(() => {
     const instr = enhanceInstructions.trim();
@@ -2235,9 +2249,26 @@ export default function Home() {
                     </span>
                   );
                 })}
+                {/* "Custom" — write your own from a blank field. Dashed border
+                    sets it apart from the preset/saved chips; once the user
+                    saves what they write, it appears as its own named chip
+                    above and Custom resets to blank for the next one. */}
+                <button
+                  type="button"
+                  onClick={startCustomTemplate}
+                  title="Scrivi istruzioni tue"
+                  className={`press inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11.5px] font-medium border border-dashed transition-colors ${
+                    customActive
+                      ? "bg-accent/10 border-accent text-accent"
+                      : "bg-surface-2/70 hover:bg-surface-3/80 border-[var(--material-border-strong)] text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  <Pencil size={11} /> Custom
+                </button>
               </div>
 
               <textarea
+                ref={enhanceTextareaRef}
                 value={enhanceInstructions}
                 onChange={(e) => setEnhanceInstructions(e.target.value)}
                 placeholder="Es. 'Fai una lista delle definizioni chiave', 'Ignora le digressioni storiche', 'Traduci i terminologismi'..."
