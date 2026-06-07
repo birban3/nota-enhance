@@ -7,9 +7,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { appendSuggestion, type Suggestion } from "@/lib/suggestions-store";
+import { mail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Fixed inbox that receives a notification email for every suggestion.
+// Hardcoded by request — no per-deploy configuration needed.
+const SUGGESTIONS_INBOX = "giorgiolongo194@gmail.com";
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 // Per-instance, per-IP rate limit: avoid one user mashing submit and pushing
 // older suggestions out of the cap. KV-backed limits would be more robust
@@ -98,7 +111,6 @@ export async function POST(req: NextRequest) {
 
   try {
     await appendSuggestion(entry);
-    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("suggestions POST failed:", err);
     return NextResponse.json(
@@ -106,4 +118,41 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Fire the notification email AFTER the suggestion is safely stored.
+  // Best-effort: the suggestion is already persisted, so an email failure
+  // (RESEND_API_KEY missing, provider down) must not turn into a user-facing
+  // error. We await it so it actually runs within the serverless invocation
+  // (a dangling promise could be killed when the function returns), but we
+  // swallow the result.
+  try {
+    const when = new Date(entry.createdAt).toLocaleString("it-IT", {
+      day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    const contactLine = entry.contact
+      ? `<p><strong>Contatto:</strong> ${esc(entry.contact)}</p>`
+      : `<p><strong>Contatto:</strong> <em>non lasciato</em></p>`;
+    await mail({
+      to: SUGGESTIONS_INBOX,
+      subject: `Nuovo suggerimento da ${entry.username}`,
+      // If the user left an email-looking contact, make Reply go to them.
+      replyTo: entry.contact && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry.contact)
+        ? entry.contact
+        : undefined,
+      html: `
+        <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-size:14px; color:#1c1917; line-height:1.5;">
+          <h2 style="margin:0 0 4px;">Nuovo suggerimento</h2>
+          <p style="color:#78716c; margin:0 0 16px; font-size:12px;">${esc(when)}</p>
+          <p><strong>Utente:</strong> ${esc(entry.username)}</p>
+          ${contactLine}
+          <p style="margin-top:16px;"><strong>Suggerimento:</strong></p>
+          <div style="white-space:pre-wrap; background:#f5f5f4; border:1px solid #e7e5e4; border-radius:8px; padding:12px;">${esc(entry.text)}</div>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.warn("suggestion notification email failed (non-fatal):", err);
+  }
+
+  return NextResponse.json({ ok: true });
 }
