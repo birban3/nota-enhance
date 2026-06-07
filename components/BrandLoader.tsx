@@ -2,25 +2,26 @@
 // Replaces the old static "Caricamento…" text with the animated wordmark so a
 // brief load still feels on-brand.
 
-// Reusable inline animated wordmark: "nota / enhance" typed out left-to-right
-// in character-sized steps with a blinking caret, "/ enhance" in accent.
+// Reusable inline animated wordmark: "nota" sits fixed in place and only the
+// "/ enhance" part is typed out left-to-right in character-sized steps, with a
+// blinking caret, in accent orange.
 //
 // How the typewriter works without measuring text width: an invisible copy of
-// the string sets the box width, then an absolutely-positioned overlay grows
-// from width:0 → 100% in `steps()` (so it reads as typed characters, not a
-// smooth wipe) with a border-right caret that rides along. Width-agnostic, so
-// it's correct for the proportional brand font on any screen.
+// the typed string sets the box width, then an absolutely-positioned overlay
+// grows from width:0 → 100% in `steps()` (so it reads as typed characters, not
+// a smooth wipe) with a border-right caret that rides along. Width-agnostic,
+// so it's correct for the proportional brand font on any screen.
 export function BrandWordmark({ className = "" }: { className?: string }) {
   return (
     <span
-      className={`brand-type font-bold tracking-tight select-none ${className}`}
+      className={`font-bold tracking-tight select-none whitespace-nowrap ${className}`}
       role="img"
       aria-label="nota / enhance"
     >
-      <span className="invisible" aria-hidden="true">nota / enhance</span>
-      <span className="brand-type-fill" aria-hidden="true">
-        <span className="text-text-emphasis">nota</span>
-        <span className="text-accent"> / enhance</span>
+      <span className="text-text-emphasis">nota</span>
+      <span className="brand-type text-accent">
+        <span className="invisible" aria-hidden="true">&nbsp;/ enhance</span>
+        <span className="brand-type-fill" aria-hidden="true">&nbsp;/ enhance</span>
       </span>
     </span>
   );
