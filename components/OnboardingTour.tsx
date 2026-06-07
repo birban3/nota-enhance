@@ -197,8 +197,31 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
     const el = document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`);
     const ro = el ? new ResizeObserver(schedule) : null;
     if (el && ro) ro.observe(el);
+
+    // Container-animation follow: when a step's target lives inside an
+    // element that animates into place (the sidebar slides + scales in via
+    // framer-motion for steps like "account"/"sidebar"/"new-note"), the
+    // target's on-screen rect keeps changing for a few hundred ms AFTER it
+    // first becomes measurable. A CSS transform animation fires neither
+    // `resize`, `scroll`, nor `ResizeObserver` (the layout box doesn't
+    // change — only the transform does), so the initial measurement landed
+    // mid-animation and the spotlight stayed off-centre (most visible on the
+    // small profile icon in the final steps). Re-measure every frame for a
+    // bounded window so the lens settles exactly over its target.
+    let followRaf = 0;
+    const settleUntil = performance.now() + 700;
+    const follow = () => {
+      const r = getRectFor(step.target!);
+      if (r) setRect(r);
+      if (performance.now() < settleUntil) {
+        followRaf = requestAnimationFrame(follow);
+      }
+    };
+    followRaf = requestAnimationFrame(follow);
+
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(followRaf);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       ro?.disconnect();

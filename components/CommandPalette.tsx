@@ -12,6 +12,20 @@ export interface Command {
   icon: React.ReactNode;
   action: () => void;
   group: "Azioni" | "Note";
+  /** Extra text searched in addition to the label. For notes this is the
+   *  full body + transcript + enhanced text, so searching finds notes by
+   *  their content, not just their title. */
+  searchText?: string;
+}
+
+/** Strip HTML tags / markdown noise to plain text for searching. */
+function plainify(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[#*_>`~]/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 interface Props {
@@ -66,6 +80,7 @@ export function CommandPalette({
         icon: <FileText size={14} />,
         group: "Note" as const,
         action: () => onSelectNote(n.id),
+        searchText: plainify(`${n.notes || ""} ${n.transcript || ""} ${n.enhancedHtml || ""}`),
       }));
     return [...actions, ...noteCmds];
   }, [notes, onCreate, onStartRecord, onImport, onEnhance, onSelectNote, onToggleTheme, onOpenSettings, onOpenSuggestions, onOpenTour, enhanceShortcut]);
@@ -73,7 +88,11 @@ export function CommandPalette({
   const filtered = useMemo(() => {
     if (!query.trim()) return allCommands;
     const q = query.toLowerCase();
-    return allCommands.filter((c) => c.label.toLowerCase().includes(q));
+    return allCommands.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        (c.searchText ? c.searchText.includes(q) : false)
+    );
   }, [allCommands, query]);
 
   // Reset on open

@@ -13,6 +13,12 @@ import { SuggestionsModal } from "@/components/SuggestionsModal";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
+  loadAllTemplates,
+  addCustomTemplate,
+  deleteCustomTemplate,
+  type EnhanceTemplate,
+} from "@/lib/templates";
+import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
   FileDown, MessageCircle, Send, Search,
 } from "lucide-react";
@@ -74,6 +80,33 @@ function newEmptyNote(): ArchivedNote {
 
 // AskMsg is exported from NotesSidebar so the persistent shape stays in one place.
 
+// A note with no user-visible content at all. Brand-new draft notes start
+// blank, and we deliberately keep them LOCAL-ONLY — never pushed to the
+// server — until they have something in them. Two bugs depended on this:
+//   • Reloading rapidly used to spawn phantom empty notes: each reload that
+//     raced ahead of the previous reload's sync saw an empty server, created
+//     a fresh blank draft (new random id), and persisted it — so blanks
+//     accumulated. Not pushing blanks makes that impossible.
+//   • Deleting blank notes could "resurrect" them on the next pull. With
+//     blanks never on the server, there's nothing to come back.
+// `pinned` / `splitRatio` are UI state, not content, so they don't count.
+function isBlankNote(n: ArchivedNote): boolean {
+  return (
+    !(n.title || "").trim() &&
+    !(n.notes || "").trim() &&
+    !(n.transcript || "").trim() &&
+    !(n.enhancedHtml || "").trim() &&
+    (!n.askMessages || n.askMessages.length === 0)
+  );
+}
+
+// The subset of an archive we're willing to persist to the server: every
+// note that actually has content. Applied to both the debounced sync POST
+// and the unload-time beacon so the two never disagree.
+function pushableArchive(arr: ArchivedNote[]): ArchivedNote[] {
+  return arr.filter((n) => !isBlankNote(n));
+}
+
 export default function Home() {
   const notesRef = useRef<TiptapHandle>(null);
   const enhancedRef = useRef<TiptapHandle>(null);
@@ -98,6 +131,12 @@ export default function Home() {
   const [notesVersion, setNotesVersion] = useState(0);
   const [enhancedVersion, setEnhancedVersion] = useState(0);
   const [initialNotesHtml, setInitialNotesHtml] = useState<string>("");
+  // Seed content for the enhanced editor. Kept separate from `enhancedHtml`
+  // (the live, persisted value) so that editing the enhanced pane — now that
+  // it's writable — doesn't feed its own keystrokes back in and reset the
+  // caret. Re-seeded only on note switch / fresh enhance (same pattern as
+  // initialNotesHtml for the notes pane).
+  const [initialEnhancedHtml, setInitialEnhancedHtml] = useState<string>("");
 
   const [title, setTitle] = useState<string>("");
   const [titleManual, setTitleManual] = useState<boolean>(false);
@@ -106,6 +145,27 @@ export default function Home() {
   const [enhanceInstructions, setEnhanceInstructions] = useState("");
   const [includeImages, setIncludeImages] = useState(true);
   const [includePdfs, setIncludePdfs] = useState(true);
+
+  // Enhance templates (default + user-created). Loaded from localStorage on
+  // mount; the prompt modal lets the user apply one or save the current
+  // instructions as a new persistent template.
+  const [templates, setTemplates] = useState<EnhanceTemplate[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  useEffect(() => { setTemplates(loadAllTemplates()); }, []);
+  const handleSaveTemplate = useCallback(() => {
+    const content = enhanceInstructions.trim();
+    if (!content) return;
+    const name = newTemplateName.trim() || content.slice(0, 24);
+    addCustomTemplate(name, content);
+    setTemplates(loadAllTemplates());
+    setNewTemplateName("");
+    setSavingTemplate(false);
+  }, [enhanceInstructions, newTemplateName]);
+  const handleDeleteTemplate = useCallback((id: string) => {
+    deleteCustomTemplate(id);
+    setTemplates(loadAllTemplates());
+  }, []);
 
   const [archive, setArchive] = useState<ArchivedNote[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -318,6 +378,7 @@ export default function Home() {
           setActiveId(active.id);
           setInitialNotesHtml(mdToHtml(active.notes));
           setEnhancedHtml(active.enhancedHtml || "");
+          setInitialEnhancedHtml(active.enhancedHtml || "");
           setTranscript(active.transcript || "");
           setTitle(active.title || "");
           setTitleManual(!!active.manualTitle);
@@ -469,6 +530,18 @@ export default function Home() {
     scheduleFlush();
   }, [scheduleFlush]);
 
+  // Enhanced pane is editable too (handwriting on iPad, manual fixes). Mirror
+  // its live HTML into `enhancedHtml` so edits persist exactly like the notes
+  // pane. We read the HTML off the editor ref rather than threading it through
+  // the change event, then let the normal snapshot/sync layers carry it. The
+  // editor is seeded from `initialEnhancedHtml`, NOT `enhancedHtml`, so this
+  // write doesn't loop back and reset the caret.
+  const handleEnhancedChange = useCallback(() => {
+    const html = enhancedRef.current?.getHtml();
+    if (html != null) setEnhancedHtml(html);
+    scheduleFlush();
+  }, [scheduleFlush]);
+
   // Belt-and-suspenders: persist whenever any tracked React state changes.
   // No debounce — we want it on disk before anything else can clear it.
   useEffect(() => {
@@ -494,7 +567,9 @@ export default function Home() {
     if (!hydrated) return;
     const latest = persistNow();
     const body = JSON.stringify({
-      archive: latest,
+      // Same blank-note filter as the live sync — an unload beacon must never
+      // be the thing that persists a phantom empty draft.
+      archive: pushableArchive(latest),
       tombstones: tombstonesRef.current,
     });
     try {
@@ -608,6 +683,10 @@ export default function Home() {
     // the editor markdown directly so in-flight typing is included.
     const liveArchive = buildLatestArchive();
     const currentTombstones = tombstonesRef.current;
+    // Only push notes that have content — blank drafts stay local-only (see
+    // isBlankNote). Both the dedup signature and the POST body use this so
+    // they can never disagree.
+    const pushArchive = pushableArchive(liveArchive);
 
     // Dedup auto-triggered syncs (state-change debounce): if nothing has
     // changed since the last successful sync, don't waste a round-trip.
@@ -615,7 +694,7 @@ export default function Home() {
     // remote-side updates even when local is identical.
     let signature = "";
     try {
-      signature = JSON.stringify({ a: liveArchive, t: currentTombstones });
+      signature = JSON.stringify({ a: pushArchive, t: currentTombstones });
     } catch {}
     if (
       !opts.isInitial &&
@@ -629,7 +708,7 @@ export default function Home() {
     syncInFlightRef.current = true;
     try {
       const body = {
-        archive: liveArchive,
+        archive: pushArchive,
         tombstones: currentTombstones,
       };
       const res = await fetch("/api/notes/sync", {
@@ -649,13 +728,35 @@ export default function Home() {
         tombstones: Record<string, number>;
       };
 
-      // Apply tombstones unconditionally (cheap, and they don't affect the
-      // visible UI on their own). Server-only — no IDB write in the cloud-
-      // only architecture.
-      setTombstones(merged.tombstones || {});
+      // Union the server's tombstones with our local ones. A delete issued
+      // *during* this in-flight sync isn't in the POST we just sent, so the
+      // server's response doesn't know about it. Overwriting local tombstones
+      // with the server set (as we used to) silently dropped that fresh
+      // tombstone — the note then stayed alive on the server and "came back"
+      // on the next pull. Latest-wins per id; we let entries older than the
+      // 30-day GC window fall away to match the server-side merge.
+      const TOMB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+      const tombCutoff = Date.now() - TOMB_TTL_MS;
+      const effectiveTombstones: Record<string, number> = { ...(merged.tombstones || {}) };
+      for (const [id, ts] of Object.entries(tombstonesRef.current)) {
+        if (ts < tombCutoff) continue;
+        if (!effectiveTombstones[id] || ts > effectiveTombstones[id]) {
+          effectiveTombstones[id] = ts;
+        }
+      }
+      setTombstones(effectiveTombstones);
 
-      const mergedArchive = Array.isArray(merged.archive) ? merged.archive : [];
-      const mergedTombstones = merged.tombstones || {};
+      // Apply the effective tombstones to the merged archive immediately, so a
+      // note deleted mid-sync vanishes from the UI on this very response
+      // instead of flickering back until the next round-trip pushes the
+      // tombstone. A tombstone only kills a note version it post-dates.
+      const isTombstoned = (n: ArchivedNote): boolean => {
+        const t = effectiveTombstones[n.id];
+        return !!t && t >= n.updatedAt;
+      };
+      const mergedArchive = (Array.isArray(merged.archive) ? merged.archive : [])
+        .filter((n) => !isTombstoned(n));
+      const mergedTombstones = effectiveTombstones;
       const curActive = activeIdRef.current;
       // `archiveRef.current` is the freshest local archive — it includes any
       // pin toggles or new notes the user added *while this sync was in
@@ -732,6 +833,7 @@ export default function Home() {
           setActiveId(fresh.id);
           setInitialNotesHtml("");
           setEnhancedHtml("");
+          setInitialEnhancedHtml("");
           setTranscript("");
           setTitle("");
           setTitleManual(false);
@@ -744,6 +846,7 @@ export default function Home() {
           setActiveId(next.id);
           setInitialNotesHtml(mdToHtml(next.notes));
           setEnhancedHtml(next.enhancedHtml || "");
+          setInitialEnhancedHtml(next.enhancedHtml || "");
           setTranscript(next.transcript || "");
           setTitle(next.title || "");
           setTitleManual(!!next.manualTitle);
@@ -759,6 +862,7 @@ export default function Home() {
         if (remoteActive.updatedAt > localActive.updatedAt) {
           setInitialNotesHtml(mdToHtml(remoteActive.notes));
           setEnhancedHtml(remoteActive.enhancedHtml || "");
+          setInitialEnhancedHtml(remoteActive.enhancedHtml || "");
           setTranscript(remoteActive.transcript || "");
           setTitle(remoteActive.title || "");
           setTitleManual(!!remoteActive.manualTitle);
@@ -769,15 +873,22 @@ export default function Home() {
         }
       }
 
+      // Final guard: never leave a locally-tombstoned note in the visible
+      // archive (e.g. one swapped back in by Step 2/3 from a stale local copy).
+      nextArchive = nextArchive.filter((n) => !isTombstoned(n));
+
       setArchive(nextArchive);
       // Refresh dirty-check ref so the next persistNow doesn't undo this.
       try { lastPersistedRef.current = JSON.stringify(nextArchive); } catch {}
       // Record the signature of what's now in sync with the server, so
-      // the auto-trigger dedup above can skip identical follow-up syncs.
+      // the auto-trigger dedup above can skip identical follow-up syncs. Must
+      // mirror how the *next* sync computes its signature (pushable archive +
+      // effective tombstones) or the dedup never matches and we'd re-sync the
+      // same state every debounce tick forever.
       try {
         lastSyncedSignatureRef.current = JSON.stringify({
-          a: nextArchive,
-          t: merged.tombstones || {},
+          a: pushableArchive(nextArchive),
+          t: effectiveTombstones,
         });
       } catch {}
     } catch (err) {
@@ -852,6 +963,7 @@ export default function Home() {
       setActiveId(id);
       setInitialNotesHtml(mdToHtml(target.notes));
       setEnhancedHtml(target.enhancedHtml || "");
+      setInitialEnhancedHtml(target.enhancedHtml || "");
       setTranscript(target.transcript || "");
       setTitle(target.title || "");
       setTitleManual(!!target.manualTitle);
@@ -870,6 +982,7 @@ export default function Home() {
     setActiveId(fresh.id);
     setInitialNotesHtml("");
     setEnhancedHtml("");
+    setInitialEnhancedHtml("");
     setTranscript("");
     setTitle("");
     setTitleManual(false);
@@ -893,10 +1006,12 @@ export default function Home() {
             setActiveId(fresh.id);
             setInitialNotesHtml("");
             setEnhancedHtml("");
+            setInitialEnhancedHtml("");
             setTranscript("");
             setTitle("");
             setTitleManual(false);
             setSplitRatio(DEFAULT_SPLIT);
+            setAskMessages([]);
             setNotesVersion((v) => v + 1);
             setEnhancedVersion((v) => v + 1);
             return [fresh];
@@ -905,6 +1020,7 @@ export default function Home() {
           setActiveId(next.id);
           setInitialNotesHtml(mdToHtml(next.notes));
           setEnhancedHtml(next.enhancedHtml || "");
+          setInitialEnhancedHtml(next.enhancedHtml || "");
           setTranscript(next.transcript || "");
           setTitle(next.title || "");
           setTitleManual(!!next.manualTitle);
@@ -984,6 +1100,12 @@ export default function Home() {
 
       const html = mdToHtml(data.enhanced);
       setEnhancedHtml(html);
+      // Re-seed the (editable) enhanced pane with the fresh result.
+      setInitialEnhancedHtml(html);
+      // Title precedence: a title the user typed manually is never overwritten
+      // by Enhance. We only adopt the AI-generated title when the user hasn't
+      // set one (no manual title, or the field is blank). The generated title
+      // is marked non-manual so a later Enhance can refresh it.
       if ((!titleManual || !title.trim()) && data.title) {
         setTitle(data.title);
         setTitleManual(false);
@@ -1702,9 +1824,17 @@ export default function Home() {
             // formula would yank the divider to the cursor on the first move.
             const startX = e.clientX;
             const startRatio = splitRatio;
+            // Snap to the centre when the divider gets close to 50% — a small
+            // "detent" that makes it easy to re-centre after moving it. The
+            // window (±3.5% of the container) is wide enough to feel magnetic
+            // but narrow enough that you can still settle just off-centre on
+            // purpose by dragging a bit further.
+            const SNAP_TARGET = 0.5;
+            const SNAP_WINDOW = 0.035;
             const move = (ev: MouseEvent) => {
               const dx = ev.clientX - startX;
-              const ratio = Math.min(0.85, Math.max(0.15, startRatio + dx / rect.width));
+              let ratio = Math.min(0.85, Math.max(0.15, startRatio + dx / rect.width));
+              if (Math.abs(ratio - SNAP_TARGET) < SNAP_WINDOW) ratio = SNAP_TARGET;
               setSplitRatio(ratio);
             };
             const up = () => {
@@ -1759,7 +1889,9 @@ export default function Home() {
               <TiptapEditor
                 key={`enhanced-${activeId}-${enhancedVersion}`}
                 ref={enhancedRef}
-                initialContent={enhancedHtml}
+                initialContent={initialEnhancedHtml}
+                placeholder="Scrivi o correggi la nota enhanced…"
+                onChange={handleEnhancedChange}
               />
             ) : (
               <EmptyState />
@@ -2017,9 +2149,82 @@ export default function Home() {
                 <Sparkles size={16} className="text-accent" />
                 <h3 className="text-[15px] font-semibold text-text-emphasis tracking-tight">Istruzioni Aggiuntive</h3>
               </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
+              <p className="text-[13px] text-text-secondary leading-relaxed mb-3">
                 Vuoi dare un focus specifico al riassunto? Scrivi qui istruzioni personalizzate per l&apos;AI <span className="italic text-text-faint">(opzionale)</span>.
               </p>
+
+              {/* ── Templates ── Apply a saved set of instructions with one
+                  tap, or save what you've typed as a new persistent template. */}
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+                    Template
+                  </span>
+                  {enhanceInstructions.trim() && !savingTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => setSavingTemplate(true)}
+                      className="press text-[11px] font-medium text-accent hover:underline"
+                    >
+                      + Salva come template
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {templates.map((t) => (
+                    <span
+                      key={t.id}
+                      className="group/chip inline-flex items-center rounded-full bg-surface-2/60 border border-[var(--material-border)] hover:border-accent/40 text-[11.5px] text-text-secondary overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        title={t.content}
+                        onClick={() => setEnhanceInstructions(t.content)}
+                        className="press pl-2.5 pr-2 py-1 hover:text-accent transition-colors"
+                      >
+                        {t.name}
+                      </button>
+                      {!t.builtin && (
+                        <button
+                          type="button"
+                          title="Elimina template"
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          className="pr-2 pl-0.5 py-1 text-text-faint hover:text-rec transition-colors"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {savingTemplate && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="text"
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSaveTemplate(); } }}
+                      placeholder="Nome del template…"
+                      autoFocus
+                      className="flex-1 h-8 bg-surface-2/50 border border-[var(--material-border)] focus:border-accent/40 rounded-lg outline-none px-3 text-[12px] text-text-primary placeholder:text-text-muted/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveTemplate}
+                      className="btn-premium-accent press h-8 px-3 rounded-lg text-[12px] font-medium text-white"
+                    >
+                      Salva
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSavingTemplate(false); setNewTemplateName(""); }}
+                      className="press h-8 px-2 rounded-lg text-[12px] text-text-muted hover:text-text-primary"
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <textarea
                 value={enhanceInstructions}

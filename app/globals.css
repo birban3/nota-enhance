@@ -161,6 +161,14 @@ html {
 /* ── Tiptap Editor ── */
 .tiptap-editor {
   @apply outline-none min-h-full text-[15px] leading-snug text-text-primary font-sans;
+  /* The split container above the editors carries `select-none` (so dragging
+     the divider doesn't select text). That `user-select: none` inherits into
+     the contenteditable and, on iPadOS especially, blocks caret placement,
+     text selection and Apple Pencil "Scribble" handwriting. Re-enable it here
+     so both panes (notes AND the now-editable enhanced note) accept pen and
+     touch input normally. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .tiptap-editor p { @apply my-1; }

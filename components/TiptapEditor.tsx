@@ -30,6 +30,9 @@ const ResizableImage = Image.extend({
 
 export interface TiptapHandle {
   getMarkdown: () => string;
+  /** Current document as HTML — used to persist edits made in the enhanced
+   *  pane (which is seeded from, and stored as, HTML rather than markdown). */
+  getHtml: () => string;
   setHtml: (html: string) => void;
   isEmpty: () => boolean;
   insertImage: (src: string, alt?: string) => void;
@@ -262,6 +265,10 @@ const TiptapEditor = forwardRef<TiptapHandle, Props>(
         if (!editor) return "";
         return docToMarkdown(editor.getJSON() as Record<string, unknown>);
       },
+      getHtml: () => {
+        if (!editor) return "";
+        return editor.getHTML();
+      },
       setHtml: (html: string) => {
         if (!editor) return;
         editor.commands.setContent(html);
@@ -281,9 +288,14 @@ const TiptapEditor = forwardRef<TiptapHandle, Props>(
       },
     }));
 
-    // Update content when initialContent changes (for enhanced editor)
+    // Re-seed the editor only when initialContent genuinely differs from
+    // what's already rendered. Without the equality guard, an editable pane
+    // (the enhanced note) would have its caret yanked to the start on every
+    // keystroke: typing → parent stores new HTML → re-render → this effect
+    // would call setContent with the same text and reset the selection.
     useEffect(() => {
-      if (initialContent && editor && !editor.isDestroyed) {
+      if (!editor || editor.isDestroyed) return;
+      if (initialContent && initialContent !== editor.getHTML()) {
         editor.commands.setContent(initialContent);
       }
     }, [initialContent, editor]);
