@@ -14,7 +14,7 @@ import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { mdToHtml, htmlEscape } from "@/lib/markdown";
 import {
   Square, Download, Sparkles, X, Loader2, ChevronUp, PanelLeft,
-  FileDown, MessageCircle, Send, Search,
+  FileDown, MessageCircle, Send, Search, Plus,
 } from "lucide-react";
 import type { TiptapHandle } from "@/components/TiptapEditor";
 import {
@@ -74,6 +74,10 @@ function newEmptyNote(): ArchivedNote {
 
 // AskMsg is exported from NotesSidebar so the persistent shape stays in one place.
 
+// Client-side shape for enhancement templates (mirrors lib/templates.ts,
+// which is server-only and can't be imported into this client component).
+interface EnhanceTemplate { id: string; name: string; instructions: string; }
+
 export default function Home() {
   const notesRef = useRef<TiptapHandle>(null);
   const enhancedRef = useRef<TiptapHandle>(null);
@@ -106,6 +110,13 @@ export default function Home() {
   const [enhanceInstructions, setEnhanceInstructions] = useState("");
   const [includeImages, setIncludeImages] = useState(true);
   const [includePdfs, setIncludePdfs] = useState(true);
+  // Enhancement instruction templates. `defaultTemplates` are built-in
+  // (from the server, constant); `customTemplates` are user-created and
+  // persist per-user in the DB (or localStorage when PG isn't configured —
+  // `templatesPersisted` says which).
+  const [defaultTemplates, setDefaultTemplates] = useState<EnhanceTemplate[]>([]);
+  const [customTemplates, setCustomTemplates] = useState<EnhanceTemplate[]>([]);
+  const [templatesPersisted, setTemplatesPersisted] = useState(true);
 
   const [archive, setArchive] = useState<ArchivedNote[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -934,6 +945,65 @@ export default function Home() {
   }, []);
 
   const handleTitleChange = (v: string) => { setTitle(v); setTitleManual(true); };
+
+  // ── Enhancement templates ──
+  // Load defaults + the user's custom templates once we know who's logged in.
+  useEffect(() => {
+    if (!username) return;
+    let cancelled = false;
+    fetch("/api/templates", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setDefaultTemplates(Array.isArray(d.defaults) ? d.defaults : []);
+        setTemplatesPersisted(!!d.persisted);
+        if (d.persisted) {
+          setCustomTemplates(Array.isArray(d.templates) ? d.templates : []);
+        } else {
+          // No server persistence (PG off) → fall back to a per-user
+          // localStorage list so custom templates still survive locally.
+          try {
+            const raw = localStorage.getItem(`nota-templates:${username}`);
+            setCustomTemplates(raw ? JSON.parse(raw) : []);
+          } catch { setCustomTemplates([]); }
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [username]);
+
+  // Persist the custom-template list (server when available, else local).
+  const persistTemplates = useCallback((next: EnhanceTemplate[]) => {
+    setCustomTemplates(next);
+    if (templatesPersisted) {
+      void fetch("/api/templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templates: next }),
+      }).catch(() => {});
+    } else {
+      try {
+        if (username) localStorage.setItem(`nota-templates:${username}`, JSON.stringify(next));
+      } catch {}
+    }
+  }, [templatesPersisted, username]);
+
+  const applyTemplate = useCallback((t: EnhanceTemplate) => {
+    setEnhanceInstructions(t.instructions);
+  }, []);
+
+  const saveCurrentAsTemplate = useCallback(() => {
+    const instr = enhanceInstructions.trim();
+    if (!instr) return;
+    const name = window.prompt("Nome del template:", instr.slice(0, 40));
+    if (!name || !name.trim()) return;
+    const t: EnhanceTemplate = { id: uid(), name: name.trim().slice(0, 60), instructions: instr };
+    persistTemplates([...customTemplates, t]);
+  }, [enhanceInstructions, customTemplates, persistTemplates]);
+
+  const deleteTemplate = useCallback((id: string) => {
+    persistTemplates(customTemplates.filter((t) => t.id !== id));
+  }, [customTemplates, persistTemplates]);
 
   const confirmEnhance = useCallback(async () => {
     setPromptModalOpen(false);
@@ -2023,9 +2093,44 @@ export default function Home() {
                 <Sparkles size={16} className="text-accent" />
                 <h3 className="text-[15px] font-semibold text-text-emphasis tracking-tight">Istruzioni Aggiuntive</h3>
               </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-                Vuoi dare un focus specifico al riassunto? Scrivi qui istruzioni personalizzate per l&apos;AI <span className="italic text-text-faint">(opzionale)</span>.
+              <p className="text-[13px] text-text-secondary leading-relaxed mb-3">
+                Vuoi dare un focus specifico al riassunto? Scegli un template o scrivi istruzioni personalizzate per l&apos;AI <span className="italic text-text-faint">(opzionale)</span>.
               </p>
+
+              {/* Template chips: built-in defaults + the user's saved ones.
+                  Click applies the template's instructions to the textarea;
+                  custom chips carry an × to delete. */}
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {defaultTemplates.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTemplate(t)}
+                    title={t.instructions}
+                    className="press inline-flex items-center h-7 px-2.5 rounded-full text-[11.5px] font-medium bg-surface-2/70 hover:bg-surface-3/80 border border-[var(--material-border)] text-text-secondary hover:text-text-primary"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+                {customTemplates.map((t) => (
+                  <span
+                    key={t.id}
+                    className="inline-flex items-center h-7 pl-2.5 pr-1 rounded-full text-[11.5px] font-medium bg-accent/10 border border-accent/25 text-accent"
+                  >
+                    <button type="button" onClick={() => applyTemplate(t)} title={t.instructions} className="press">
+                      {t.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteTemplate(t.id)}
+                      title="Elimina template"
+                      className="press ml-1 w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-accent/20"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
 
               <textarea
                 value={enhanceInstructions}
@@ -2040,6 +2145,17 @@ export default function Home() {
                   }
                 }}
               />
+              {/* Save the current instructions as a reusable template. */}
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={saveCurrentAsTemplate}
+                  disabled={!enhanceInstructions.trim()}
+                  className="press inline-flex items-center gap-1 text-[11.5px] font-medium text-accent hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                >
+                  <Plus size={12} /> Salva come template
+                </button>
+              </div>
               <div className="flex flex-col gap-2.5 mt-3 mb-1 px-1">
                 <label className="flex items-center gap-2.5 text-[12px] text-text-secondary cursor-pointer hover:text-text-primary transition-colors select-none">
                   <input type="checkbox" checked={includeImages} onChange={e => setIncludeImages(e.target.checked)} className="accent-accent w-3.5 h-3.5" />

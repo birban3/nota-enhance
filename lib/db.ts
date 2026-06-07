@@ -72,11 +72,13 @@ const SCHEMA_STATEMENTS: string[] = [
     stripe_customer_id       TEXT,
     subscription_status      TEXT,
     subscription_period_end  BIGINT,
-    onboarded_at             BIGINT
+    onboarded_at             BIGINT,
+    enhance_templates        JSONB NOT NULL DEFAULT '[]'::jsonb
   )`,
-  // Idempotent migration for deploys that already ran the older schema
-  // (without onboarded_at). Safe to re-run on every cold start.
+  // Idempotent migrations for deploys that already ran an older schema.
+  // Safe to re-run on every cold start.
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at BIGINT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS enhance_templates JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `CREATE TABLE IF NOT EXISTS notes (
     id            TEXT NOT NULL,
     user_id       TEXT NOT NULL,
