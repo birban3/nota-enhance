@@ -190,16 +190,23 @@ html {
 .brand-type { position: relative; display: inline-block; white-space: nowrap; line-height: 1.15; }
 .brand-type-fill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  bottom: 0;
   overflow: hidden;
   white-space: nowrap;
-  box-sizing: border-box;
+  /* content-box (NOT the global border-box): with border-box, width:100% had
+     the 2px caret border subtracted from the content area, so overflow:hidden
+     clipped the right edge of the final "e". content-box makes width:100% the
+     full text width and puts the caret border outside it. The +2px slack
+     absorbs sub-pixel rounding so the last glyph is never shaved. */
+  box-sizing: content-box;
   width: 0;
   border-right: 2px solid var(--accent, #A84309);
   animation: brand-type-grow 0.95s steps(10, end) forwards,
              brand-type-caret 0.8s step-end infinite;
 }
-@keyframes brand-type-grow { to { width: 100%; } }
+@keyframes brand-type-grow { to { width: calc(100% + 2px); } }
 @keyframes brand-type-caret { 50% { border-color: transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .brand-type-fill {
