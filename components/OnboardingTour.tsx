@@ -59,15 +59,48 @@ const VIEWPORT_MARGIN = 16;
 // The app sets `html { zoom: 1.15 }` on desktop (globals.css). Under CSS
 // zoom, getBoundingClientRect(), offsetWidth/Height and the `top`/`left` we
 // write are all in LAYOUT pixels (pre-zoom) and agree with each other — but
-// window.innerWidth/innerHeight report VISUAL (device) pixels. Mixing the two
-// in the viewport-clamp math placed the card ~zoom× too low, pushing the
-// footer (Avanti button) off-screen. Dividing the visual viewport by the
-// zoom factor brings everything into the same layout-pixel space.
-function getZoom(): number {
-  if (typeof window === "undefined") return 1;
-  const z = parseFloat(getComputedStyle(document.documentElement).zoom || "1");
-  return z && !Number.isNaN(z) ? z : 1;
+// ── Fixed-element scale probe ──
+//
+// The app sets `html { zoom: 1.15 }` on desktop. The hard part: how CSS
+// `zoom` interacts with getBoundingClientRect() and with the `top/left` of a
+// `position:fixed` element is INCONSISTENT across browsers. In some
+// (recent Chromium) getBoundingClientRect returns visual/zoomed pixels while
+// the `top` you write is layout pixels (so they differ by the zoom factor);
+// in others they agree. Reading `getComputedStyle(html).zoom` told us the
+// CSS value but NOT which of those two regimes the browser is in — so a
+// fixed division over-corrected on the browsers that don't scale fixed
+// coords, flipping the spotlight misalignment to the opposite side.
+//
+// Instead we MEASURE the actual relationship at runtime: drop a 100px-wide
+// `position:fixed` probe and read its rect width. The ratio rect/100 is
+// exactly the factor F such that `renderedRect = cssValue * F`. To make a
+// fixed element's rect line up with a target's rect we then set
+// `cssValue = targetRect / F`. This is correct in EVERY browser regardless
+// of how it chose to handle zoom. Cached for 1s so the per-frame tracking
+// loop doesn't thrash the DOM.
+let _scale = 0;
+let _scaleAt = 0;
+function fixedScale(): number {
+  if (typeof document === "undefined") return 1;
+  const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (_scale && t - _scaleAt < 1000) return _scale;
+  try {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;width:100px;height:100px;visibility:hidden;pointer-events:none;margin:0;padding:0;border:0";
+    document.body.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    document.body.removeChild(probe);
+    _scale = w > 0 ? w / 100 : 1;
+  } catch {
+    _scale = 1;
+  }
+  _scaleAt = t;
+  return _scale;
 }
+// Back-compat alias — callers below still read the "zoom" factor; it's now
+// the measured fixed-element scale (correct cross-browser).
+const getZoom = fixedScale;
 
 function getRectFor(selector: string): Rect | null {
   if (typeof document === "undefined") return null;
