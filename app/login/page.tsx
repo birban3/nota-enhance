@@ -105,7 +105,9 @@ function LoginInner() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-surface-0">
-      <header className="px-6 md:px-10 py-5 flex items-center justify-between">
+      {/* pt-safe keeps the "Indietro" link clear of the iOS notch / status bar
+          — without it the back button sat under the dynamic island on phones. */}
+      <header className="px-6 md:px-10 py-5 pt-safe flex items-center justify-between">
         <Link
           href="/welcome"
           className="press inline-flex items-center gap-1.5 text-[12px] text-text-muted hover:text-text-secondary"
