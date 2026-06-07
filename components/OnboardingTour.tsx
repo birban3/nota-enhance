@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useLayoutEffect, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ArrowLeft, X, Sparkles, Check } from "lucide-react";
 
@@ -51,14 +51,8 @@ interface Props {
 
 interface Rect { top: number; left: number; width: number; height: number; }
 
-const TOOLTIP_W = 320;
-const TOOLTIP_H_ESTIMATE = 200;
 const SPOTLIGHT_PADDING = 8;
-const VIEWPORT_MARGIN = 16;
 
-// The app sets `html { zoom: 1.15 }` on desktop (globals.css). Under CSS
-// zoom, getBoundingClientRect(), offsetWidth/Height and the `top`/`left` we
-// write are all in LAYOUT pixels (pre-zoom) and agree with each other — but
 // ── Fixed-element scale probe ──
 //
 // The app sets `html { zoom: 1.15 }` on desktop. The hard part: how CSS
@@ -128,56 +122,37 @@ function getRectFor(selector: string): Rect | null {
   };
 }
 
-function placeTooltip(
-  rect: Rect | null,
-  preferred: TourStep["placement"]
-): { top: number; left: number } {
-  const zoom = getZoom();
-  if (!rect || typeof window === "undefined") {
-    const w = typeof window !== "undefined" ? window.innerWidth / zoom : 1024;
-    const h = typeof window !== "undefined" ? window.innerHeight / zoom : 768;
-    return {
-      top: Math.max(VIEWPORT_MARGIN, (h - TOOLTIP_H_ESTIMATE) / 2),
-      left: Math.max(VIEWPORT_MARGIN, (w - TOOLTIP_W) / 2),
-    };
-  }
+// Dock-side decision for the tooltip card.
+//
+// Why a flex dock instead of absolute pixel placement: previous iterations
+// computed `top:` / `left:` for a `position:fixed` card and then clamped it
+// inside `window.innerWidth/Height`. Under `html { zoom: 1.15 }` the meaning
+// of `top:` written to a fixed element vs. what `getBoundingClientRect()`
+// returns is *inconsistent across browsers* (some scale, some don't). Even
+// after measuring the real ratio with a probe, the card kept landing with the
+// "Avanti" button below the viewport on tall steps (4 = editor pane, 11 =
+// account link near sidebar bottom) on some browsers.
+//
+// The flex approach sidesteps the whole zoom mess: a fixed `inset-0` container
+// uses no pixel math; flex `items-start` / `items-end` / `items-center` dock
+// the card to a viewport edge; the card carries `max-h-full` + an internal
+// scroll region so its footer (with the Avanti button) is structurally always
+// in view. The only pixel math left is the spotlight rect, which is meant to
+// track its target — and a small visual misalignment there is far less bad
+// than the user being unable to press Avanti.
+type Dock = "top" | "bottom" | "center";
 
-  // Layout-pixel viewport (see getZoom): rect is already layout px.
-  const vw = window.innerWidth / zoom;
-  const vh = window.innerHeight / zoom;
-  const room = {
-    top: rect.top - VIEWPORT_MARGIN,
-    bottom: vh - (rect.top + rect.height) - VIEWPORT_MARGIN,
-    left: rect.left - VIEWPORT_MARGIN,
-    right: vw - (rect.left + rect.width) - VIEWPORT_MARGIN,
-  };
-  let side: "top" | "bottom" | "left" | "right" =
-    preferred && preferred !== "auto" ? preferred : "bottom";
-  // Switch sides when the preferred one doesn't fit.
-  if (side === "bottom" && room.bottom < TOOLTIP_H_ESTIMATE) side = "top";
-  if (side === "top" && room.top < TOOLTIP_H_ESTIMATE) side = "bottom";
-  if (side === "right" && room.right < TOOLTIP_W + 12) side = "left";
-  if (side === "left" && room.left < TOOLTIP_W + 12) side = "right";
-
-  let top = 0;
-  let left = 0;
-  if (side === "bottom") {
-    top = rect.top + rect.height + 12;
-    left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
-  } else if (side === "top") {
-    top = rect.top - TOOLTIP_H_ESTIMATE - 12;
-    left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
-  } else if (side === "right") {
-    top = rect.top + rect.height / 2 - TOOLTIP_H_ESTIMATE / 2;
-    left = rect.left + rect.width + 12;
-  } else {
-    top = rect.top + rect.height / 2 - TOOLTIP_H_ESTIMATE / 2;
-    left = rect.left - TOOLTIP_W - 12;
-  }
-  // Clamp inside the viewport so the tooltip is never half off-screen.
-  left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - TOOLTIP_W - VIEWPORT_MARGIN));
-  top = Math.max(VIEWPORT_MARGIN, Math.min(top, vh - TOOLTIP_H_ESTIMATE - VIEWPORT_MARGIN));
-  return { top, left };
+function pickDock(rect: Rect | null, preferred: TourStep["placement"]): Dock {
+  if (!rect || typeof window === "undefined") return "center";
+  // Honour an explicit placement hint when given, except `auto` which means
+  // "pick whichever side has more room".
+  if (preferred === "top") return "top";
+  if (preferred === "bottom") return "bottom";
+  const vh = window.innerHeight / getZoom();
+  const targetCenter = rect.top + rect.height / 2;
+  // Target in the top half → card docks to the bottom (out of the way of the
+  // spotlight). Target in the bottom half → card docks to the top.
+  return targetCenter < vh / 2 ? "bottom" : "top";
 }
 
 export function OnboardingTour({ open, steps, onClose }: Props) {
@@ -283,71 +258,14 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open, next, prev, onClose]);
 
-  const placement = useMemo(() => placeTooltip(rect, step?.placement), [rect, step?.placement]);
-
-  // `placement` uses an ESTIMATED card height (TOOLTIP_H_ESTIMATE) for its
-  // viewport clamp. When the real card is taller than the estimate — long
-  // body text, narrow screens where text wraps, or a step anchored to a
-  // huge target like the editor pane — the bottom (with the Avanti button)
-  // overflowed off-screen. After the card renders we measure its true
-  // layout size and re-clamp so it's always fully inside the viewport. We
-  // use offsetWidth/Height (not getBoundingClientRect) so framer-motion's
-  // entry scale transform doesn't skew the measurement.
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number } | null>(null);
-
-  useLayoutEffect(() => {
-    const el = cardRef.current;
-    if (!el || typeof window === "undefined") return;
-    // Layout-pixel viewport — offsetWidth/Height and the top/left we set are
-    // already layout px; only innerWidth/Height need the zoom division.
-    const zoom = getZoom();
-    const vw = window.innerWidth / zoom;
-    const vh = window.innerHeight / zoom;
-    const h = el.offsetHeight;
-    const w = el.offsetWidth;
-    let top = placement.top;
-    let left = placement.left;
-    let maxHeight: number | undefined;
-    // If the card is taller than the usable viewport, pin it to the top
-    // margin and cap its height (its body scrolls internally) so the footer
-    // buttons stay reachable. Otherwise clamp so the whole card fits.
-    const usableH = vh - VIEWPORT_MARGIN * 2;
-    if (h > usableH) {
-      top = VIEWPORT_MARGIN;
-      maxHeight = usableH;
-    } else {
-      top = Math.max(VIEWPORT_MARGIN, Math.min(top, vh - h - VIEWPORT_MARGIN));
-    }
-    left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - w - VIEWPORT_MARGIN));
-    // Guard against an update loop: only commit when something actually
-    // moved by more than a sub-pixel.
-    setPos((prev) => {
-      if (
-        prev &&
-        Math.abs(prev.top - top) < 0.5 &&
-        Math.abs(prev.left - left) < 0.5 &&
-        prev.maxHeight === maxHeight
-      ) {
-        return prev;
-      }
-      return { top, left, maxHeight };
-    });
-  }, [placement.top, placement.left, index, ready, rect]);
-
-  // NB: no separate "reset pos on step change" effect. A passive useEffect
-  // would run AFTER this useLayoutEffect and null out the correction it just
-  // computed (the layout effect wouldn't re-run because its deps didn't
-  // change), leaving the card on the estimate-based position → off-screen.
-  // The layout effect already recomputes before paint whenever the step /
-  // placement / rect changes, so there's no flash to guard against.
+  const dock = useMemo(() => pickDock(rect, step?.placement), [rect, step?.placement]);
 
   if (!open || !step) return null;
 
-  const cardPos: { top: number; left: number; maxHeight?: number } = pos ?? placement;
-
   const isLast = index === steps.length - 1;
   const isFirst = index === 0;
+  const dockAlign =
+    dock === "top" ? "items-start" : dock === "bottom" ? "items-end" : "items-center";
 
   return (
     <AnimatePresence>
@@ -386,87 +304,94 @@ export function OnboardingTour({ open, steps, onClose }: Props) {
           <div className="fixed inset-0" onClick={() => onClose(false)} />
 
           {ready && (
-            <motion.div
-              ref={cardRef}
-              key={`card-${step.id}`}
-              className="fixed material-thick rounded-2xl border shadow-float p-5 overflow-y-auto"
-              style={{
-                top: cardPos.top,
-                left: cardPos.left,
-                width: TOOLTIP_W,
-                maxWidth: "calc(100vw - 32px)",
-                maxHeight: cardPos.maxHeight,
-              }}
-              initial={{ opacity: 0, scale: 0.96, y: 4 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 4 }}
-              transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
-              onClick={(e) => e.stopPropagation()}
+            // Flex dock — the card is parked at the top, bottom or centre of
+            // the viewport via flex alignment, never with `top:` / `left:`
+            // pixel math. The card itself caps at `max-h-full` and its body
+            // scrolls internally, so the footer (Avanti) is always visible.
+            // Container is pointer-events:none so clicks on the empty area
+            // around the card fall through to the dismiss layer below.
+            <div
+              className={`fixed inset-0 flex justify-center p-4 pointer-events-none pt-safe pb-safe ${dockAlign}`}
             >
-              <div className="flex items-start gap-3 mb-3">
-                <div className="w-7 h-7 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center shrink-0">
-                  {isLast ? <Check size={13} className="text-accent" /> : <Sparkles size={13} className="text-accent" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-text-faint mb-0.5">
-                    {index + 1} / {steps.length}
+              <motion.div
+                key={`card-${step.id}`}
+                className="pointer-events-auto material-thick rounded-2xl border shadow-float w-[320px] max-w-full max-h-full flex flex-col"
+                initial={{ opacity: 0, scale: 0.96, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header — fixed, doesn't scroll. */}
+                <div className="flex items-start gap-3 p-5 pb-3 shrink-0">
+                  <div className="w-7 h-7 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center shrink-0">
+                    {isLast ? <Check size={13} className="text-accent" /> : <Sparkles size={13} className="text-accent" />}
                   </div>
-                  <h3 className="text-[14.5px] font-semibold text-text-emphasis tracking-tight leading-snug">
-                    {step.title}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => onClose(false)}
-                  title="Salta il tutorial"
-                  className="press w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-3/40 -mt-1 -mr-1"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-                {step.body}
-              </p>
-
-              <div className="flex items-center gap-1 mb-4">
-                {steps.map((_, i) => (
-                  <span
-                    key={i}
-                    className={`h-1.5 rounded-full transition-all ${
-                      i === index
-                        ? "w-6 bg-accent"
-                        : i < index
-                        ? "w-1.5 bg-accent/40"
-                        : "w-1.5 bg-text-faint/30"
-                    }`}
-                  />
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {!isFirst && (
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-text-faint mb-0.5">
+                      {index + 1} / {steps.length}
+                    </div>
+                    <h3 className="text-[14.5px] font-semibold text-text-emphasis tracking-tight leading-snug">
+                      {step.title}
+                    </h3>
+                  </div>
                   <button
-                    onClick={prev}
-                    className="press inline-flex items-center gap-1 h-8 px-3 rounded-lg text-text-muted hover:text-text-primary text-[12.5px] font-medium"
+                    onClick={() => onClose(false)}
+                    title="Salta il tutorial"
+                    className="press w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-3/40 -mt-1 -mr-1"
                   >
-                    <ArrowLeft size={12} /> Indietro
+                    <X size={14} />
                   </button>
-                )}
-                <div className="flex-1" />
-                <button
-                  onClick={() => onClose(false)}
-                  className="press text-text-faint hover:text-text-secondary text-[11.5px]"
-                >
-                  Salta
-                </button>
-                <button
-                  onClick={next}
-                  className="btn-premium-accent press inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-[12.5px] font-medium"
-                >
-                  {step.ctaLabel ?? (isLast ? "Fine" : "Avanti")}
-                  {!isLast && <ArrowRight size={12} />}
-                </button>
-              </div>
-            </motion.div>
+                </div>
+
+                {/* Body — scrolls internally when the card hits max-h-full. */}
+                <div className="px-5 overflow-y-auto flex-1 min-h-0">
+                  <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
+                    {step.body}
+                  </p>
+                  <div className="flex items-center gap-1 mb-4">
+                    {steps.map((_, i) => (
+                      <span
+                        key={i}
+                        className={`h-1.5 rounded-full transition-all ${
+                          i === index
+                            ? "w-6 bg-accent"
+                            : i < index
+                            ? "w-1.5 bg-accent/40"
+                            : "w-1.5 bg-text-faint/30"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Footer — fixed, always visible at the bottom of the card. */}
+                <div className="flex items-center gap-2 p-5 pt-3 shrink-0 border-t border-[var(--material-border)]/40">
+                  {!isFirst && (
+                    <button
+                      onClick={prev}
+                      className="press inline-flex items-center gap-1 h-8 px-3 rounded-lg text-text-muted hover:text-text-primary text-[12.5px] font-medium"
+                    >
+                      <ArrowLeft size={12} /> Indietro
+                    </button>
+                  )}
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => onClose(false)}
+                    className="press text-text-faint hover:text-text-secondary text-[11.5px]"
+                  >
+                    Salta
+                  </button>
+                  <button
+                    onClick={next}
+                    className="btn-premium-accent press inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-[12.5px] font-medium"
+                  >
+                    {step.ctaLabel ?? (isLast ? "Fine" : "Avanti")}
+                    {!isLast && <ArrowRight size={12} />}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
           )}
         </div>
       )}

@@ -72,6 +72,27 @@ function newEmptyNote(): ArchivedNote {
   };
 }
 
+// A note with no user content at all — a fresh draft. These are kept
+// LOCAL-ONLY (never pushed to the server) so rapid reloads don't pile up
+// blank notes: each load that sees an empty server makes a draft, and if
+// drafts were pushed, the next load (before that push had landed) would see
+// an empty server again, make ANOTHER draft, push it… → an ever-growing pile
+// of empty notes. A draft becomes a real, syncing note the moment the user
+// puts anything in it.
+function isEmptyNote(n: ArchivedNote): boolean {
+  const enhancedText = (n.enhancedHtml || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+  return (
+    !n.title.trim() &&
+    !n.notes.trim() &&
+    !n.transcript.trim() &&
+    !enhancedText &&
+    !(n.askMessages && n.askMessages.length > 0)
+  );
+}
+
 // AskMsg is exported from NotesSidebar so the persistent shape stays in one place.
 
 // Client-side shape for enhancement templates (mirrors lib/templates.ts,
@@ -309,22 +330,35 @@ export default function Home() {
           serverTombstones =
             data.tombstones && typeof data.tombstones === "object" ? data.tombstones : {};
         }
+        // Legacy cleanup: a previous (buggy) client pushed empty draft notes
+        // to the server, where they piled up. Drafts are no longer pushed, so
+        // any empty note coming back from the server now is cruft — tombstone
+        // it so the next sync removes it everywhere, and don't show it.
+        const emptyOnServer = stored.filter((n) => isEmptyNote(n));
+        if (emptyOnServer.length > 0) {
+          const now = Date.now();
+          const cleanup: Record<string, number> = {};
+          for (const n of emptyOnServer) cleanup[n.id] = now;
+          serverTombstones = { ...serverTombstones, ...cleanup };
+        }
         setTombstones(serverTombstones);
 
-        if (stored.length === 0) {
-          // First-time user (or all notes deleted server-side). Start with
-          // a single empty draft note — local-only until they type the
-          // first character, the autosave pushes it on the next debounce.
+        const realNotes = stored.filter((n) => !isEmptyNote(n));
+
+        if (realNotes.length === 0) {
+          // First-time user (or all notes empty/deleted server-side). Start
+          // with a single empty draft note — local-only until they type the
+          // first character, then the sync picks it up.
           const first = newEmptyNote();
           setArchive([first]);
           setActiveId(first.id);
           setSplitRatio(first.splitRatio ?? DEFAULT_SPLIT);
         } else {
-          setArchive(stored);
+          setArchive(realNotes);
           // No persisted "active id" anymore — pick the most recently
           // updated note so reopening the app lands on the one the user
           // was last working on (across devices).
-          const sorted = [...stored].sort((a, b) => b.updatedAt - a.updatedAt);
+          const sorted = [...realNotes].sort((a, b) => b.updatedAt - a.updatedAt);
           const active = sorted[0];
           setActiveId(active.id);
           setInitialNotesHtml(mdToHtml(active.notes));
@@ -345,6 +379,16 @@ export default function Home() {
     }
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lock the mobile viewport to the editor app only. The CSS that kills the
+  // document scroll (globals.css) is scoped to `html.app-locked` so public
+  // pages (landing, login) keep scrolling normally on a phone; we add the
+  // class while this component is mounted and strip it on unmount/navigation.
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.add("app-locked");
+    return () => html.classList.remove("app-locked");
   }, []);
 
   // ════════════════ Persistence layer (bulletproof) ════════════════
@@ -505,7 +549,10 @@ export default function Home() {
     if (!hydrated) return;
     const latest = persistNow();
     const body = JSON.stringify({
-      archive: latest,
+      // Don't persist empty drafts on unload either — same reason as the
+      // regular sync (see isEmptyNote): a blank note left open shouldn't be
+      // saved to the server just because the tab closed.
+      archive: latest.filter((n) => !isEmptyNote(n)),
       tombstones: tombstonesRef.current,
     });
     try {
@@ -619,14 +666,20 @@ export default function Home() {
     // the editor markdown directly so in-flight typing is included.
     const liveArchive = buildLatestArchive();
     const currentTombstones = tombstonesRef.current;
+    // Drafts (completely empty notes) stay local-only — see isEmptyNote. This
+    // is what stops blank notes piling up on the server across rapid reloads.
+    const pushArchive = liveArchive.filter((n) => !isEmptyNote(n));
 
     // Dedup auto-triggered syncs (state-change debounce): if nothing has
     // changed since the last successful sync, don't waste a round-trip.
     // isInitial and isPull (visibility/focus) bypass — those want the
-    // remote-side updates even when local is identical.
+    // remote-side updates even when local is identical. Signature is over the
+    // FILTERED archive (what we actually push) + tombstones, matching what
+    // lastSyncedSignatureRef records below — so a draft becoming non-empty,
+    // or a tombstone added mid-sync, reliably trips a fresh push.
     let signature = "";
     try {
-      signature = JSON.stringify({ a: liveArchive, t: currentTombstones });
+      signature = JSON.stringify({ a: pushArchive, t: currentTombstones });
     } catch {}
     if (
       !opts.isInitial &&
@@ -640,7 +693,7 @@ export default function Home() {
     syncInFlightRef.current = true;
     try {
       const body = {
-        archive: liveArchive,
+        archive: pushArchive,
         tombstones: currentTombstones,
       };
       const res = await fetch("/api/notes/sync", {
@@ -660,13 +713,21 @@ export default function Home() {
         tombstones: Record<string, number>;
       };
 
-      // Apply tombstones unconditionally (cheap, and they don't affect the
-      // visible UI on their own). Server-only — no IDB write in the cloud-
-      // only architecture.
-      setTombstones(merged.tombstones || {});
-
+      // Union the server's tombstones with our local ones rather than
+      // replacing. A delete made *during* this in-flight sync set a local
+      // tombstone that the POST (built before the delete) didn't carry — so
+      // merged.tombstones won't have it. Replacing would drop that tombstone
+      // and the just-deleted note would resurrect from mergedArchive. Latest
+      // delete-time wins per id.
       const mergedArchive = Array.isArray(merged.archive) ? merged.archive : [];
-      const mergedTombstones = merged.tombstones || {};
+      const serverTombs = merged.tombstones || {};
+      const unionTombstones: Record<string, number> = { ...serverTombs };
+      for (const [id, ts] of Object.entries(tombstonesRef.current)) {
+        if (!unionTombstones[id] || ts > unionTombstones[id]) unionTombstones[id] = ts;
+      }
+      setTombstones(unionTombstones);
+
+      const mergedTombstones = unionTombstones;
       const curActive = activeIdRef.current;
       // `archiveRef.current` is the freshest local archive — it includes any
       // pin toggles or new notes the user added *while this sync was in
@@ -730,6 +791,18 @@ export default function Home() {
         }
       }
 
+      // Step 3.5: drop any note tombstoned with a delete newer than its last
+      // edit. This is the resurrection guard for deletes made *mid-sync*: the
+      // server's mergedArchive still carries the note (our in-flight POST went
+      // out before the delete set the tombstone), so without this filter it
+      // would pop back into the list. A note survives a tombstone only when it
+      // was edited *after* the delete (updatedAt > tombstone) — e.g. another
+      // device legitimately resurrected it.
+      nextArchive = nextArchive.filter((n) => {
+        const tomb = unionTombstones[n.id];
+        return !tomb || n.updatedAt > tomb;
+      });
+
       // Step 4: if the active note was deleted on another device (tombstoned
       // server-side, so it didn't come back AND we had no local copy of it
       // either), pick a sibling or a new empty one so the editor doesn't
@@ -783,11 +856,19 @@ export default function Home() {
       setArchive(nextArchive);
       // Refresh dirty-check ref so the next persistNow doesn't undo this.
       try { lastPersistedRef.current = JSON.stringify(nextArchive); } catch {}
-      // Record the signature of what's now in sync with the server, so
-      // the auto-trigger dedup above can skip identical follow-up syncs.
+      // Record the signature of what's now in sync with the server, so the
+      // auto-trigger dedup above can skip identical follow-up syncs. Two
+      // deliberate choices keep this correct:
+      //   • `a` excludes empty drafts (matches `pushArchive`), else the dedup
+      //     could never match the next push and we'd sync forever.
+      //   • `t` is the SERVER-confirmed tombstone set, not the union. If a
+      //     delete was applied locally mid-sync (in `unionTombstones`) but not
+      //     yet pushed, recording the union here would make the dedup skip the
+      //     follow-up push — leaving the delete un-synced. Recording the
+      //     server's set means the next trigger sees a difference and pushes.
       try {
         lastSyncedSignatureRef.current = JSON.stringify({
-          a: nextArchive,
+          a: nextArchive.filter((n) => !isEmptyNote(n)),
           t: merged.tombstones || {},
         });
       } catch {}
@@ -1550,7 +1631,7 @@ export default function Home() {
     // scroll internally. The mobile pb reserves space for the fixed action
     // bar (which is pulled out of the flex flow on small to dodge dvh
     // reporting bugs in iOS standalone PWA mode).
-    <div className="h-dvh flex flex-col bg-surface-0 relative overflow-hidden pb-[calc(env(safe-area-inset-bottom)+3.25rem)] md:pb-0">
+    <div className="h-dvh flex flex-col bg-surface-0 relative overflow-hidden action-bar-reserve md:pb-0">
 
       {/* ── Floating header (translucent) ── */}
       <header className="material-thin border-b shrink-0 z-30 pt-safe">
@@ -1920,7 +2001,7 @@ export default function Home() {
           below an in-flow bar. The root container reserves matching
           padding-bottom so the editor / transcript don't slide under the
           fixed bar. Desktop keeps the in-flow `shrink-0` layout. */}
-      <div data-tour="action-bar" className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 pb-safe md:pb-4">
+      <div data-tour="action-bar" className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 action-bar-inset md:pb-4">
         <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
             data-tour="import-btn"

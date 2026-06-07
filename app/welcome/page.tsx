@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, Mic, FileDown, MessageCircle, ArrowRight } from "lucide-react";
-import { HeroBackground } from "./HeroBackground";
 
 // Public landing page — shown to unauthenticated visitors. Authenticated
 // users are redirected to "/" (the app) on mount, so a logged-in user
@@ -26,9 +25,21 @@ export default function WelcomePage() {
   }, [router]);
 
   return (
-    <div className="min-h-dvh bg-surface-0 text-text-primary flex flex-col">
+    <div className="relative min-h-dvh bg-surface-0 text-text-primary flex flex-col overflow-x-hidden">
+      {/* Soft ambient glow behind the hero. A single low-opacity radial
+          gradient — calm and premium, no animated SVG. Decorative only
+          (aria-hidden) and click-through (pointer-events:none). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -z-0 w-[760px] max-w-[140vw] h-[460px]"
+        style={{
+          background:
+            "radial-gradient(50% 60% at 50% 30%, rgba(168,67,9,0.12), rgba(168,67,9,0.04) 45%, transparent 72%)",
+        }}
+      />
+
       {/* ── Header ── */}
-      <header className="px-6 md:px-10 py-5 flex items-center justify-between">
+      <header className="relative z-10 px-6 md:px-10 py-5 pt-safe flex items-center justify-between">
         <div className="flex items-center gap-2 text-[14px]">
           <span className="font-bold text-text-emphasis tracking-tight">nota</span>
           <span className="text-accent opacity-50">/</span>
@@ -50,12 +61,8 @@ export default function WelcomePage() {
         </div>
       </header>
 
-      {/* ── Hero ──
-          Background animation sits absolutely behind the hero copy; the
-          parent <main> is relative so the SVG anchors there. The animation
-          is decorative-only (aria-hidden + pointer-events:none). */}
-      <main className="relative flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
-        <HeroBackground />
+      {/* ── Hero ── */}
+      <main className="relative z-10 flex-1 px-6 md:px-10 pt-12 md:pt-24 pb-16">
         <section className="relative max-w-3xl mx-auto text-center">
           {/* `text-balance` lets the browser pick line breaks that look more
               even — without it, large headlines often end up with a single

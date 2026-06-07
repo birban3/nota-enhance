@@ -104,8 +104,13 @@ html {
    iOS keyboard's auto-scroll-to-focused-field, which we need for the
    note editors. `overflow: hidden` plus `overscroll-behavior: none` is
    enough to kill the document scroll without breaking input focus. */
+/* Scoped to `.app-locked` (added to <html> only while the editor app is
+   mounted — see app/page.tsx). Public pages like the landing and the
+   login/register form must scroll normally on a phone, so they deliberately
+   do NOT get this class. Previously the lock was unconditional on html/body,
+   which made the landing page un-scrollable on mobile. */
 @media (max-width: 767px) {
-  html, body {
+  html.app-locked, html.app-locked body {
     height: 100dvh;
     overflow: hidden;
     overscroll-behavior: none;
@@ -117,6 +122,18 @@ html {
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
 .pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
 .mb-safe { margin-bottom: max(env(safe-area-inset-bottom), 0px); }
+
+/* Floating action-bar bottom inset (mobile only).
+   The full safe-area inset (`pb-safe`) pushed the floating pill ~34px up on
+   home-indicator phones, leaving a big empty white strip below it. Since the
+   bar is a floating pill (not a bottom-anchored bar), it only needs a small
+   clearance over the indicator, not the whole inset — so we CAP the gap. The
+   root container reserves the same value + the pill height so the editor never
+   slides under the bar. Desktop overrides both via `md:` utilities. */
+@media (max-width: 767px) {
+  .action-bar-inset { padding-bottom: max(0.5rem, min(env(safe-area-inset-bottom), 0.75rem)); }
+  .action-bar-reserve { padding-bottom: calc(max(0.5rem, min(env(safe-area-inset-bottom), 0.75rem)) + 3.25rem); }
+}
 
 /* Block iOS Safari from auto-zooming on input focus. iOS only triggers the
    zoom when font-size is < 16px on the focused field, so we bump every form
@@ -507,15 +524,4 @@ html {
 @media print {
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { size: A4; margin: 18mm; }
-}
-
-/* Respect prefers-reduced-motion on the landing hero animation. The SVG
-   inside .reduce-motion-freeze uses SMIL <animate> tags; stopping them with
-   `animation-play-state` doesn't work (SMIL is not CSS animation), so we
-   hide the moving dots entirely and leave the static scribble + clean
-   lines composition behind. */
-@media (prefers-reduced-motion: reduce) {
-  .reduce-motion-freeze svg circle {
-    display: none;
-  }
 }

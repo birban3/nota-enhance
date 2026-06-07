@@ -55,15 +55,58 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
 }
 
-function snippet(notesMd: string): string {
-  const stripped = notesMd
+function stripMarkdown(md: string): string {
+  return md
     .replace(/^#+\s*/gm, "")
     .replace(/^[-*]\s*/gm, "")
     .replace(/\*\*/g, "")
     .replace(/^>\s*/gm, "")
     .replace(/\n+/g, " ")
     .trim();
-  return stripped.slice(0, 70);
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function snippet(notesMd: string): string {
+  return stripMarkdown(notesMd).slice(0, 70);
+}
+
+// Build a short citation around the first match of `q` in `hay` — the part
+// before the match, the match itself, and the part after, each with an
+// ellipsis where text was clipped. Lets the sidebar show *where* in a note a
+// search matched, with the matched span highlighted. null when `q` isn't in
+// `hay`.
+function makeCite(
+  hay: string,
+  q: string
+): { pre: string; match: string; post: string } | null {
+  if (!hay || !q) return null;
+  const i = hay.toLowerCase().indexOf(q);
+  if (i < 0) return null;
+  const start = Math.max(0, i - 24);
+  const end = Math.min(hay.length, i + q.length + 44);
+  return {
+    pre: (start > 0 ? "…" : "") + hay.slice(start, i),
+    match: hay.slice(i, i + q.length),
+    post: hay.slice(i + q.length, end) + (end < hay.length ? "…" : ""),
+  };
+}
+
+// First body citation for a note (notes → transcript → enhanced), skipping the
+// title — its match is already visible up top. Used to surface where a search
+// hit landed when it wasn't in the title.
+function bodyCitation(n: ArchivedNote, q: string) {
+  return (
+    makeCite(stripMarkdown(n.notes || ""), q) ||
+    makeCite(n.transcript || "", q) ||
+    makeCite(stripHtml(n.enhancedHtml || ""), q)
+  );
 }
 
 export function NotesSidebar({
@@ -88,15 +131,9 @@ export function NotesSidebar({
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  // Strip HTML tags so a search matches the visible text of the enhanced
-  // note, not its markup (e.g. searching "storia" shouldn't miss a word
-  // that's inside a <strong> tag).
-  const plainText = (html: string) =>
-    html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
-
-  const filtered = query.trim()
+  const q = query.trim().toLowerCase();
+  const filtered = q
     ? sorted.filter((n) => {
-        const q = query.toLowerCase();
         // Search across the full text of the note: title, raw notes,
         // transcript AND the enhanced version (HTML stripped). Previously
         // only title/notes/transcript were searched, so content that lived
@@ -105,7 +142,7 @@ export function NotesSidebar({
           n.title.toLowerCase().includes(q) ||
           n.notes.toLowerCase().includes(q) ||
           n.transcript.toLowerCase().includes(q) ||
-          plainText(n.enhancedHtml || "").toLowerCase().includes(q)
+          stripHtml(n.enhancedHtml || "").toLowerCase().includes(q)
         );
       })
     : sorted;
@@ -202,6 +239,11 @@ export function NotesSidebar({
             >
               {filtered.map((n) => {
                 const isActive = n.id === activeId;
+                // When searching and the hit ISN'T in the title, show a small
+                // citation of the matched text in the body so the user knows
+                // why this note surfaced.
+                const titleHit = q ? n.title.toLowerCase().includes(q) : false;
+                const cite = q && !titleHit ? bodyCitation(n, q) : null;
                 return (
                   <motion.li
                     key={n.id}
@@ -222,11 +264,17 @@ export function NotesSidebar({
                         {n.pinned && <Pin size={10} className="shrink-0 text-accent fill-accent rotate-45" />}
                         <span className="truncate">{n.title || "Senza titolo"}</span>
                       </div>
-                      {n.notes && (
+                      {cite ? (
+                        <div className="text-[11px] text-text-faint truncate mt-0.5">
+                          {cite.pre}
+                          <mark className="bg-transparent text-accent font-medium">{cite.match}</mark>
+                          {cite.post}
+                        </div>
+                      ) : n.notes ? (
                         <div className="text-[11px] text-text-faint truncate mt-0.5">
                           {snippet(n.notes)}
                         </div>
-                      )}
+                      ) : null}
                       <div className="text-[10px] text-text-faint font-mono mt-1">
                         {formatDate(n.createdAt)}
                       </div>
