@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useAudioRecorder } from "@/components/useAudioRecorder";
 import { NotesSidebar, type ArchivedNote, type AskMsg } from "@/components/NotesSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
-import { BrandLoader } from "@/components/BrandLoader";
+import { BrandLoader, useBrandLoaderGate } from "@/components/BrandLoader";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { clearAllVals } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
@@ -1639,12 +1639,19 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hold the splash until BOTH hydration is done AND the typewriter has had
+  // time to finish (see useBrandLoaderGate). Must sit with the other hooks,
+  // above the early return below.
+  const showLoader = useBrandLoaderGate(!hydrated);
+
   // Loading guard MUST come after every hook above. React requires the same
   // hooks in the same order on every render; an early return placed before
   // any hook (as `tourSteps`'s useMemo previously was) makes the hook count
   // jump from "fewer" (pre-hydrate, early return) to "more" (post-hydrate),
-  // which is React error #310. Keep all hooks above this line.
-  if (!hydrated) {
+  // which is React error #310. Keep all hooks above this line — including the
+  // loader gate, which holds the splash until the typewriter finishes even
+  // when hydration beats the animation.
+  if (showLoader) {
     return <BrandLoader />;
   }
 

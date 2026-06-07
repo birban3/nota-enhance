@@ -181,10 +181,12 @@ html {
 .ease-out-quint { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* ── Brand typewriter loader ──
-   Reveals "nota / enhance" left-to-right in character-sized steps with a
-   blinking caret. An invisible copy of the text sets the box width so the
-   animated overlay can grow 0 → 100% (caret rides along) without us needing
-   to know the rendered width of the proportional brand font. */
+   "nota" is rendered statically; only the " / enhance" part (wrapped in
+   .brand-type) is typed left-to-right in character-sized steps with a blinking
+   caret. An invisible copy of that string sets the box width so the animated
+   overlay can grow 0 → 100% (caret rides along) without us needing to know the
+   rendered width of the proportional brand font. steps(10) ≈ the 10 glyphs of
+   " / enhance". */
 .brand-type { position: relative; display: inline-block; white-space: nowrap; line-height: 1.15; }
 .brand-type-fill {
   position: absolute;
@@ -194,7 +196,7 @@ html {
   box-sizing: border-box;
   width: 0;
   border-right: 2px solid var(--accent, #A84309);
-  animation: brand-type-grow 1.15s steps(14, end) forwards,
+  animation: brand-type-grow 0.95s steps(10, end) forwards,
              brand-type-caret 0.8s step-end infinite;
 }
 @keyframes brand-type-grow { to { width: 100%; } }
