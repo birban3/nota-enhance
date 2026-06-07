@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Lock, Sparkles, UserPlus, ArrowLeft } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 
 type Mode = "login" | "register";
 
@@ -93,12 +94,7 @@ function LoginInner() {
   }
 
   if (checkingSession) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center bg-surface-0 text-text-muted text-sm gap-2">
-        <Loader2 size={14} className="animate-spin-fast" />
-        Verifica sessione…
-      </div>
-    );
+    return <BrandLoader />;
   }
 
   const isRegister = mode === "register";
@@ -291,16 +287,11 @@ function GoogleG() {
 }
 
 // useSearchParams() must live inside a Suspense boundary in Next 15 app router.
-// The fallback matches the inner page's session-check skeleton so there's no
+// The fallback matches the inner page's session-check splash so there's no
 // visual flash between the two states.
 export default function LoginPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-dvh flex items-center justify-center bg-surface-0 text-text-muted text-sm gap-2">
-        <Loader2 size={14} className="animate-spin-fast" />
-        Caricamento…
-      </div>
-    }>
+    <Suspense fallback={<BrandLoader />}>
       <LoginInner />
     </Suspense>
   );
