@@ -7,6 +7,7 @@ import {
   ArrowLeft, Loader2, CreditCard, AlertTriangle, Check, X as XIcon,
   ChevronRight, LogOut, BookOpenCheck,
 } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 
 interface Plan {
   id: string;
@@ -85,14 +86,7 @@ function fmtShortDate(ms: number): string {
 // holds the actual page logic.
 export default function AccountPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-dvh flex items-center justify-center bg-surface-0 text-text-muted gap-2 text-sm">
-          <Loader2 size={14} className="animate-spin-fast" />
-          Caricamento account…
-        </div>
-      }
-    >
+    <Suspense fallback={<BrandLoader />}>
       <AccountInner />
     </Suspense>
   );
@@ -233,12 +227,7 @@ function AccountInner() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center bg-surface-0 text-text-muted gap-2 text-sm">
-        <Loader2 size={14} className="animate-spin-fast" />
-        Caricamento account…
-      </div>
-    );
+    return <BrandLoader />;
   }
 
   if (!data) {

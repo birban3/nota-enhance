@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useAudioRecorder } from "@/components/useAudioRecorder";
 import { NotesSidebar, type ArchivedNote, type AskMsg } from "@/components/NotesSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
+import { BrandLoader } from "@/components/BrandLoader";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { clearAllVals } from "@/lib/storage";
 import { SettingsModal } from "@/components/SettingsModal";
@@ -1644,7 +1645,7 @@ export default function Home() {
   // jump from "fewer" (pre-hydrate, early return) to "more" (post-hydrate),
   // which is React error #310. Keep all hooks above this line.
   if (!hydrated) {
-    return <div className="h-dvh flex items-center justify-center text-text-muted text-sm">Caricamento…</div>;
+    return <BrandLoader />;
   }
 
   return (

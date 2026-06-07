@@ -43,8 +43,11 @@ export default function WelcomePage() {
         }}
       />
 
-      {/* ── Header ── */}
-      <header className="relative z-10 px-6 md:px-10 py-5 pt-safe flex items-center justify-between">
+      {/* ── Header ──
+          Extra top padding gives the navbar breathing room from the top edge
+          (and the iOS status bar via the safe-area inset), instead of sitting
+          flush against it. */}
+      <header className="relative z-10 px-6 md:px-10 pb-5 pt-[calc(env(safe-area-inset-top)+2.25rem)] flex items-center justify-between">
         <div className="flex items-center gap-2 text-[14px]">
           <span className="font-bold text-text-emphasis tracking-tight">nota</span>
           <span className="text-accent opacity-50">/</span>

@@ -180,6 +180,33 @@ html {
 .ease-spring { transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
 .ease-out-quint { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 
+/* ── Brand typewriter loader ──
+   Reveals "nota / enhance" left-to-right in character-sized steps with a
+   blinking caret. An invisible copy of the text sets the box width so the
+   animated overlay can grow 0 → 100% (caret rides along) without us needing
+   to know the rendered width of the proportional brand font. */
+.brand-type { position: relative; display: inline-block; white-space: nowrap; line-height: 1.15; }
+.brand-type-fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
+  width: 0;
+  border-right: 2px solid var(--accent, #A84309);
+  animation: brand-type-grow 1.15s steps(14, end) forwards,
+             brand-type-caret 0.8s step-end infinite;
+}
+@keyframes brand-type-grow { to { width: 100%; } }
+@keyframes brand-type-caret { 50% { border-color: transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .brand-type-fill {
+    animation: none;
+    width: 100%;
+    border-right-color: transparent;
+  }
+}
+
 /* ── Tiptap Editor ── */
 .tiptap-editor {
   @apply outline-none min-h-full text-[15px] leading-snug text-text-primary font-sans;
