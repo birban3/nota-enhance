@@ -14,13 +14,17 @@ export const metadata: Metadata = {
   },
 };
 
-// `viewport-fit=cover` lets us paint into the iOS safe-area; `maximumScale=1`
-// stops Safari auto-zooming on input focus (we already size inputs ≥16px on
-// mobile to avoid the focus zoom heuristic, but this is belt-and-suspenders).
+// `viewport-fit=cover` lets us paint into the iOS safe-area.
+// initial/maximum/minimum-scale all pinned to 1 + user-scalable=no kills every
+// form of mobile zoom (pinch zoom, double-tap zoom, focus auto-zoom), per
+// user request. Inputs are already sized ≥16px on mobile (globals.css) as a
+// belt-and-suspenders against Safari's focus-zoom heuristic.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
+  maximumScale: 1,
+  minimumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0b" },

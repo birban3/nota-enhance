@@ -11,7 +11,6 @@ interface Props {
 
 const TEXT_MIN = 5;
 const TEXT_MAX = 4000;
-const CONTACT_MAX = 200;
 
 // Lightweight modal for users to send improvement suggestions to the team.
 // Mirrors SettingsModal in chrome — same header rule, same rounded-2xl card,
@@ -19,7 +18,6 @@ const CONTACT_MAX = 200;
 // external form.
 export function SuggestionsModal({ open, onClose }: Props) {
   const [text, setText] = useState("");
-  const [contact, setContact] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -42,7 +40,6 @@ export function SuggestionsModal({ open, onClose }: Props) {
     if (open) return;
     const t = setTimeout(() => {
       setText("");
-      setContact("");
       setError(null);
       setDone(false);
       setSubmitting(false);
@@ -67,7 +64,7 @@ export function SuggestionsModal({ open, onClose }: Props) {
       const res = await fetch("/api/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: body, contact: contact.trim() || undefined }),
+        body: JSON.stringify({ text: body }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -127,8 +124,7 @@ export function SuggestionsModal({ open, onClose }: Props) {
                 </div>
                 <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-xs">
                   Lo leggiamo e usiamo per dare priorità ai prossimi
-                  miglioramenti. Se hai lasciato un contatto, magari ti
-                  scriviamo.
+                  miglioramenti.
                 </p>
                 <button
                   onClick={onClose}
@@ -157,19 +153,6 @@ export function SuggestionsModal({ open, onClose }: Props) {
                   <span className={text.length > TEXT_MAX * 0.9 ? "text-rec" : undefined}>
                     {text.length}/{TEXT_MAX}
                   </span>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[11.5px] text-text-muted font-medium">
-                    Contatto (opzionale)
-                  </label>
-                  <input
-                    type="text"
-                    value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                    placeholder="Email o handle, se vuoi che ti rispondiamo"
-                    maxLength={CONTACT_MAX}
-                    className="w-full bg-surface-2/60 border border-[var(--material-border)] focus:border-accent/40 rounded-xl outline-none px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted/60 transition-colors"
-                  />
                 </div>
 
                 {error && (

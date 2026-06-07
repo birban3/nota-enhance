@@ -105,15 +105,10 @@ function LoginInner() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-surface-0">
-      {/* pt-safe keeps the "Indietro" link clear of the iOS notch / status bar
-          — without it the back button sat under the dynamic island on phones. */}
-      <header className="px-6 md:px-10 py-5 pt-safe flex items-center justify-between">
-        <Link
-          href="/welcome"
-          className="press inline-flex items-center gap-1.5 text-[12px] text-text-muted hover:text-text-secondary"
-        >
-          <ArrowLeft size={13} /> Indietro
-        </Link>
+      {/* Outer header: just the wordmark on the right. The "Indietro" link
+          used to live here too but moved into the card itself (per user
+          request) so it's right where the form is, not floating up top. */}
+      <header className="px-6 md:px-10 py-5 pt-safe flex items-center justify-end">
         <div className="flex items-center gap-2 text-[13px] text-text-muted">
           <span className="font-bold text-text-primary tracking-tight">nota</span>
           <span className="text-accent opacity-50">/</span>
@@ -124,6 +119,15 @@ function LoginInner() {
       <div className="flex-1 flex items-center justify-center px-4 pb-10">
         <div className="w-full max-w-sm">
           <div className="material-thick rounded-2xl border shadow-float p-6 space-y-4">
+            {/* In-card back link — top-left, above the title. Sized to feel
+                like a chip so it doesn't compete with the form's primary
+                action below. */}
+            <Link
+              href="/welcome"
+              className="press -ml-1 -mt-1 inline-flex items-center gap-1 h-7 pl-1.5 pr-2.5 rounded-lg text-[12px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-3/40"
+            >
+              <ArrowLeft size={13} /> Indietro
+            </Link>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-accent/15 border border-accent/25 flex items-center justify-center">
                 {isRegister ? (

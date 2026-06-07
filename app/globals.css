@@ -66,6 +66,11 @@
 
 html, body {
   transition: background-color 0.2s ease, color 0.2s ease;
+  /* Stop iOS Safari from auto-resizing text on orientation change (the
+     "boost" heuristic). Combined with viewport `user-scalable=no`, this
+     removes every form of zoom on mobile. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* ── Default UI zoom ──

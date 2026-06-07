@@ -1073,6 +1073,16 @@ export default function Home() {
     setEnhanceInstructions(t.instructions);
   }, []);
 
+  // A template is "active" while the textarea's text matches its instructions
+  // exactly — i.e. the user clicked it and hasn't typed since. The mobile
+  // chips use this to highlight the selected one in the accent border, and
+  // it's the gate that hides "Salva come template" when a default is in use
+  // (you can only save your own custom-written instructions, not a default).
+  const trimmedInstr = enhanceInstructions.trim();
+  const activeTemplate = trimmedInstr
+    ? [...defaultTemplates, ...customTemplates].find((t) => t.instructions.trim() === trimmedInstr) ?? null
+    : null;
+
   const saveCurrentAsTemplate = useCallback(() => {
     const instr = enhanceInstructions.trim();
     if (!instr) return;
@@ -2179,38 +2189,52 @@ export default function Home() {
               </p>
 
               {/* Template chips: built-in defaults + the user's saved ones.
-                  Click applies the template's instructions to the textarea;
-                  custom chips carry an × to delete. */}
+                  Clicking a chip applies its instructions to the textarea;
+                  the active one (whichever instructions match what's typed)
+                  gets the accent border so the user can see what's selected.
+                  Custom chips carry an × to delete. */}
               <div className="flex flex-wrap gap-1.5 mb-3">
-                {defaultTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => applyTemplate(t)}
-                    title={t.instructions}
-                    className="press inline-flex items-center h-7 px-2.5 rounded-full text-[11.5px] font-medium bg-surface-2/70 hover:bg-surface-3/80 border border-[var(--material-border)] text-text-secondary hover:text-text-primary"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-                {customTemplates.map((t) => (
-                  <span
-                    key={t.id}
-                    className="inline-flex items-center h-7 pl-2.5 pr-1 rounded-full text-[11.5px] font-medium bg-accent/10 border border-accent/25 text-accent"
-                  >
-                    <button type="button" onClick={() => applyTemplate(t)} title={t.instructions} className="press">
+                {defaultTemplates.map((t) => {
+                  const isActive = activeTemplate?.id === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => applyTemplate(t)}
+                      title={t.instructions}
+                      className={`press inline-flex items-center h-7 px-2.5 rounded-full text-[11.5px] font-medium border transition-colors ${
+                        isActive
+                          ? "bg-accent/10 border-accent text-accent"
+                          : "bg-surface-2/70 hover:bg-surface-3/80 border-[var(--material-border)] text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
                       {t.name}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteTemplate(t.id)}
-                      title="Elimina template"
-                      className="press ml-1 w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-accent/20"
+                  );
+                })}
+                {customTemplates.map((t) => {
+                  const isActive = activeTemplate?.id === t.id;
+                  return (
+                    <span
+                      key={t.id}
+                      className={`inline-flex items-center h-7 pl-2.5 pr-1 rounded-full text-[11.5px] font-medium bg-accent/10 text-accent border transition-colors ${
+                        isActive ? "border-accent" : "border-accent/25"
+                      }`}
                     >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
+                      <button type="button" onClick={() => applyTemplate(t)} title={t.instructions} className="press">
+                        {t.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteTemplate(t.id)}
+                        title="Elimina template"
+                        className="press ml-1 w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-accent/20"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
 
               <textarea
@@ -2226,17 +2250,24 @@ export default function Home() {
                   }
                 }}
               />
-              {/* Save the current instructions as a reusable template. */}
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={saveCurrentAsTemplate}
-                  disabled={!enhanceInstructions.trim()}
-                  className="press inline-flex items-center gap-1 text-[11.5px] font-medium text-accent hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
-                >
-                  <Plus size={12} /> Salva come template
-                </button>
-              </div>
+              {/* Save the current instructions as a reusable template.
+                  Only available when the textarea content is user-written
+                  (i.e. doesn't match any existing template) — saving a
+                  default would just duplicate it; saving while a custom
+                  is active would also duplicate. The button is hidden
+                  rather than disabled so a default's selection doesn't
+                  leave a greyed-out CTA below it.  */}
+              {trimmedInstr && !activeTemplate && (
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={saveCurrentAsTemplate}
+                    className="press inline-flex items-center gap-1 text-[11.5px] font-medium text-accent hover:underline"
+                  >
+                    <Plus size={12} /> Salva come template
+                  </button>
+                </div>
+              )}
               <div className="flex flex-col gap-2.5 mt-3 mb-1 px-1">
                 <label className="flex items-center gap-2.5 text-[12px] text-text-secondary cursor-pointer hover:text-text-primary transition-colors select-none">
                   <input type="checkbox" checked={includeImages} onChange={e => setIncludeImages(e.target.checked)} className="accent-accent w-3.5 h-3.5" />

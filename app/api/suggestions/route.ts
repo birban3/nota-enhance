@@ -52,7 +52,6 @@ function rateLimited(key: string): boolean {
 
 const TEXT_MIN = 5;
 const TEXT_MAX = 4000;
-const CONTACT_MAX = 200;
 
 function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -73,7 +72,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { text?: unknown; contact?: unknown };
+  let body: { text?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -81,7 +80,6 @@ export async function POST(req: NextRequest) {
   }
 
   const text = typeof body.text === "string" ? body.text.trim() : "";
-  const contact = typeof body.contact === "string" ? body.contact.trim() : "";
   if (text.length < TEXT_MIN) {
     return NextResponse.json(
       { error: `Suggerimento troppo corto (min ${TEXT_MIN} caratteri).` },
@@ -94,19 +92,15 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (contact.length > CONTACT_MAX) {
-    return NextResponse.json(
-      { error: `Campo contatto troppo lungo (max ${CONTACT_MAX} caratteri).` },
-      { status: 400 }
-    );
-  }
 
+  // The signed-in user is the contact — Reply-To on the notification email
+  // goes to their account email (resolved below), so the dedicated contact
+  // field is redundant.
   const entry: Suggestion = {
     id: uid(),
     username,
     text,
     createdAt: Date.now(),
-    ...(contact ? { contact } : {}),
   };
 
   try {
@@ -129,22 +123,21 @@ export async function POST(req: NextRequest) {
     const when = new Date(entry.createdAt).toLocaleString("it-IT", {
       day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
     });
-    const contactLine = entry.contact
-      ? `<p><strong>Contatto:</strong> ${esc(entry.contact)}</p>`
-      : `<p><strong>Contatto:</strong> <em>non lasciato</em></p>`;
+    // Reply-To goes to the signed-in user's account email so a reply lands
+    // back with them directly. Usernames already are email addresses, so the
+    // username doubles as the contact — no separate field needed.
+    const replyTo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry.username)
+      ? entry.username
+      : undefined;
     await mail({
       to: SUGGESTIONS_INBOX,
       subject: `Nuovo suggerimento da ${entry.username}`,
-      // If the user left an email-looking contact, make Reply go to them.
-      replyTo: entry.contact && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry.contact)
-        ? entry.contact
-        : undefined,
+      replyTo,
       html: `
         <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-size:14px; color:#1c1917; line-height:1.5;">
           <h2 style="margin:0 0 4px;">Nuovo suggerimento</h2>
           <p style="color:#78716c; margin:0 0 16px; font-size:12px;">${esc(when)}</p>
           <p><strong>Utente:</strong> ${esc(entry.username)}</p>
-          ${contactLine}
           <p style="margin-top:16px;"><strong>Suggerimento:</strong></p>
           <div style="white-space:pre-wrap; background:#f5f5f4; border:1px solid #e7e5e4; border-radius:8px; padding:12px;">${esc(entry.text)}</div>
         </div>
