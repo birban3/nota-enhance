@@ -1702,9 +1702,15 @@ export default function Home() {
             // formula would yank the divider to the cursor on the first move.
             const startX = e.clientX;
             const startRatio = splitRatio;
+            // Magnetic snap zone around the centre: when the dragged ratio
+            // lands within SNAP of 0.5 it clicks to exactly 0.5, so the user
+            // can easily restore an even split after moving the divider.
+            const SNAP = 0.025;
             const move = (ev: MouseEvent) => {
               const dx = ev.clientX - startX;
-              const ratio = Math.min(0.85, Math.max(0.15, startRatio + dx / rect.width));
+              const raw = startRatio + dx / rect.width;
+              const snapped = Math.abs(raw - 0.5) < SNAP ? 0.5 : raw;
+              const ratio = Math.min(0.85, Math.max(0.15, snapped));
               setSplitRatio(ratio);
             };
             const up = () => {
