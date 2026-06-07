@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Lock, Sparkles, UserPlus, ArrowLeft } from "lucide-react";
-import { BrandLoader } from "@/components/BrandLoader";
+import { BrandLoader, useBrandLoaderGate } from "@/components/BrandLoader";
 
 type Mode = "login" | "register";
 
@@ -87,13 +87,17 @@ function LoginInner() {
     }
   }
 
+  // Keep the splash up until the typewriter finishes even if the session check
+  // resolves first. Must be called unconditionally, with the other hooks.
+  const showLoader = useBrandLoaderGate(checkingSession);
+
   function swapMode(next: Mode) {
     setMode(next);
     setError(null);
     setConfirm("");
   }
 
-  if (checkingSession) {
+  if (showLoader) {
     return <BrandLoader />;
   }
 

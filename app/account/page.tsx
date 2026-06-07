@@ -7,7 +7,7 @@ import {
   ArrowLeft, Loader2, CreditCard, AlertTriangle, Check, X as XIcon,
   ChevronRight, LogOut, BookOpenCheck,
 } from "lucide-react";
-import { BrandLoader } from "@/components/BrandLoader";
+import { BrandLoader, useBrandLoaderGate } from "@/components/BrandLoader";
 
 interface Plan {
   id: string;
@@ -126,6 +126,10 @@ function AccountInner() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // Hold the splash until the typewriter finishes even if the account data
+  // loads first. Must be called unconditionally with the other hooks.
+  const showLoader = useBrandLoaderGate(loading);
+
   // Show Stripe checkout success/cancel as a transient toast.
   useEffect(() => {
     const c = search.get("checkout");
@@ -226,7 +230,7 @@ function AccountInner() {
     window.location.href = "/login";
   }
 
-  if (loading) {
+  if (showLoader) {
     return <BrandLoader />;
   }
 
