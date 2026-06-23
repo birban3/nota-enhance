@@ -1231,7 +1231,79 @@ export default function Home() {
     }
   };
 
-  const handleStartRec = async () => { await startRecording(); };
+  // ── Recording sources picker ──
+  // Clicking "Registra" opens a small popover above the button with two
+  // independent checkboxes (microphone / computer audio). The user reconfirms
+  // each time; the last picked combination is remembered (localStorage, per
+  // device) and pre-checks the boxes the next time. First time = mic only.
+  const [recPickerOpen, setRecPickerOpen] = useState(false);
+  // null while we read localStorage on mount so we never render with a wrong
+  // default during hydration.
+  const [recSources, setRecSources] = useState<{ mic: boolean; system: boolean } | null>(null);
+  // getDisplayMedia is absent on mobile Safari and on older browsers — when
+  // missing we offer the option in a disabled state with an explanation
+  // instead of pretending it works.
+  const [systemAudioSupported, setSystemAudioSupported] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("nota-rec-sources");
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed.mic === "boolean" && typeof parsed.system === "boolean") {
+        setRecSources(parsed);
+      } else {
+        setRecSources({ mic: true, system: false });
+      }
+    } catch {
+      setRecSources({ mic: true, system: false });
+    }
+    setSystemAudioSupported(
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getDisplayMedia === "function"
+    );
+  }, []);
+
+  // The action bar's inner pill has `overflow-x-auto`, so we can't render the
+  // popover absolute-positioned from inside the button — it'd be clipped at
+  // the pill's top edge. Instead the popover renders as a sibling of the pill,
+  // inside the action-bar wrapper (which has no overflow rule), using
+  // `bottom: 100%` so it sits above the pill. We center it on the Registra
+  // button by computing the button's center offset via offsetLeft/offsetParent
+  // chain — that uses layout pixels in the same coord system the wrapper
+  // uses, sidestepping the CSS-zoom traps that would hit getBoundingClientRect.
+  const recordButtonRef = useRef<HTMLButtonElement>(null);
+  const actionBarRef = useRef<HTMLDivElement>(null);
+  const [recButtonLeft, setRecButtonLeft] = useState<number | null>(null);
+  const measureRecButton = useCallback(() => {
+    const btn = recordButtonRef.current;
+    const bar = actionBarRef.current;
+    if (!btn || !bar) return;
+    let x = btn.offsetWidth / 2;
+    let el: HTMLElement | null = btn;
+    while (el && el !== bar) {
+      x += el.offsetLeft;
+      el = el.offsetParent as HTMLElement | null;
+    }
+    setRecButtonLeft(x);
+  }, []);
+  const handleStartRec = useCallback(() => {
+    measureRecButton();
+    setRecPickerOpen(true);
+  }, [measureRecButton]);
+  // Keep the popover centered on the button if the window resizes while open.
+  useEffect(() => {
+    if (!recPickerOpen) return;
+    const h = () => measureRecButton();
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, [recPickerOpen, measureRecButton]);
+
+  const confirmStartRec = useCallback(async () => {
+    if (!recSources) return;
+    try { localStorage.setItem("nota-rec-sources", JSON.stringify(recSources)); } catch {}
+    setRecPickerOpen(false);
+    await startRecording(recSources);
+  }, [recSources, startRecording]);
 
   const toggleTheme = useCallback(() => {
     const cur = document.documentElement.getAttribute("data-theme") || "dark";
@@ -2033,7 +2105,12 @@ export default function Home() {
           below an in-flow bar. The root container reserves matching
           padding-bottom so the editor / transcript don't slide under the
           fixed bar. Desktop keeps the in-flow `shrink-0` layout. */}
-      <div data-tour="action-bar" className="fixed bottom-0 left-0 right-0 z-20 md:static md:z-auto md:shrink-0 px-3 md:px-10 action-bar-inset md:pb-4">
+      {/* Mobile: position:fixed pins to the bottom (the wrapper IS an offset
+          parent so the popover above can be absolute-positioned safely).
+          Desktop: position:relative — same offset-parent role, while still
+          participating in the normal flex flow (relative with no insets is
+          visually identical to static). */}
+      <div ref={actionBarRef} data-tour="action-bar" className="fixed bottom-0 left-0 right-0 z-20 md:relative md:z-auto md:shrink-0 px-3 md:px-10 action-bar-inset md:pb-4">
         <div className="material-regular border rounded-full shadow-float px-1.5 md:px-2 py-1 md:py-1.5 flex items-center justify-center gap-0.5 md:gap-1 mx-auto w-full md:w-fit max-w-full overflow-x-auto scrollbar-hidden">
           <button
             data-tour="import-btn"
@@ -2050,6 +2127,7 @@ export default function Home() {
 
           {!isRecording ? (
             <button
+              ref={recordButtonRef}
               data-tour="record-btn"
               onClick={handleStartRec}
               disabled={isEnhancing || isTranscribingRecording}
@@ -2115,6 +2193,94 @@ export default function Home() {
             className="hidden"
           />
         </div>
+
+        {/* Recording-sources popover. Sits as a SIBLING of the inner pill so
+            it isn't clipped by the pill's overflow-x rule, anchored above
+            the Registra button by the measured offset.
+
+            Only mounts while !isRecording (the button gets replaced by Stop
+            mid-recording, so the popover anchor disappears anyway). */}
+        <AnimatePresence>
+          {!isRecording && recPickerOpen && recSources && recButtonLeft != null && (
+            <>
+              {/* Click-outside dismiss layer, below the panel. */}
+              <div
+                className="fixed inset-0 z-[55]"
+                onClick={() => setRecPickerOpen(false)}
+              />
+              <div
+                className="absolute bottom-full z-[56] mb-2 -translate-x-1/2"
+                style={{ left: recButtonLeft }}
+              >
+                <motion.div
+                  role="dialog"
+                  aria-label="Sorgenti audio"
+                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
+                  className="w-[280px] material-thick rounded-xl border shadow-float p-3 text-left"
+                >
+                  <div className="text-[11px] font-mono uppercase tracking-[0.18em] text-text-faint mb-2 px-1">
+                    Sorgenti audio
+                  </div>
+                  <label className="flex items-start gap-2.5 px-1 py-1.5 rounded-lg hover:bg-surface-3/40 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={recSources.mic}
+                      onChange={(e) => setRecSources({ ...recSources, mic: e.target.checked })}
+                      className="accent-accent w-3.5 h-3.5 mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] text-text-primary font-medium">Microfono</div>
+                      <div className="text-[11px] text-text-muted leading-snug">
+                        L&apos;audio attorno a te (ambiente, voce).
+                      </div>
+                    </div>
+                  </label>
+                  <label
+                    className={`flex items-start gap-2.5 px-1 py-1.5 rounded-lg select-none ${
+                      systemAudioSupported ? "hover:bg-surface-3/40 cursor-pointer" : "opacity-60 cursor-not-allowed"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={systemAudioSupported && recSources.system}
+                      disabled={!systemAudioSupported}
+                      onChange={(e) => setRecSources({ ...recSources, system: e.target.checked })}
+                      className="accent-accent w-3.5 h-3.5 mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] text-text-primary font-medium">Audio del computer</div>
+                      <div className="text-[11px] text-text-muted leading-snug">
+                        {systemAudioSupported
+                          ? "Per una call/video in una tab del browser. Il browser ti chiederà di scegliere quale tab condividere e di spuntare \"Condividi audio\"."
+                          : "Non supportato su questo browser (mobile / Safari)."}
+                      </div>
+                    </div>
+                  </label>
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--material-border)]/40">
+                    <button
+                      type="button"
+                      onClick={() => setRecPickerOpen(false)}
+                      className="press flex-1 h-8 rounded-lg text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-3/40"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmStartRec}
+                      disabled={!recSources.mic && !recSources.system}
+                      className="btn-premium-rec press flex-1 h-8 rounded-lg text-[12px] font-medium tracking-tight text-white disabled:opacity-50"
+                    >
+                      Avvia
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Floating sidebar ── */}
