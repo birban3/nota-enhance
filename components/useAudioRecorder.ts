@@ -301,13 +301,23 @@ async function transcribeOne(file: File, onBalance?: (balance: number) => void):
   }
 }
 
+/** Which audio sources to capture. At least one must be true. `mic` requests
+ *  the microphone via getUserMedia; `system` captures system / tab audio via
+ *  getDisplayMedia (the user must accept the browser's "share screen with
+ *  audio" prompt). When both are true the streams are mixed via AudioContext
+ *  and recorded together. */
+export interface RecordingSources {
+  mic: boolean;
+  system: boolean;
+}
+
 interface UseAudioRecorderReturn {
   isRecording: boolean;
   recordTime: number;
   audioURL: string | null;
   transcript: string;
   setTranscript: (t: string | ((prev: string) => string)) => void;
-  startRecording: () => Promise<void>;
+  startRecording: (sources?: RecordingSources) => Promise<void>;
   stopRecording: () => void;
   error: string | null;
   clearError: () => void;
@@ -389,7 +399,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
   }, []);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (sources: RecordingSources = { mic: true, system: false }) => {
     setError(null);
     // Clear any leftover audioURL from a previous file upload — the player
     // shouldn't render during/after a recording (recording playback is
@@ -401,21 +411,56 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       }
       return null;
     });
+    if (!sources.mic && !sources.system) {
+      setError("Seleziona almeno una sorgente audio.");
+      return;
+    }
+    // Collect every stream we acquire so a partial failure (mic ok, screen
+    // dialog dismissed) still cleans up the device indicator.
+    const acquired: MediaStream[] = [];
+    let audioContext: AudioContext | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          noiseSuppression: false,
-          echoCancellation: false,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-      });
+      let micStream: MediaStream | null = null;
+      let systemStream: MediaStream | null = null;
 
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = 2.5;
+      if (sources.mic) {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            autoGainControl: true,
+            noiseSuppression: false,
+            echoCancellation: false,
+            channelCount: 1,
+            sampleRate: 48000,
+          },
+        });
+        acquired.push(micStream);
+      }
+
+      if (sources.system) {
+        if (typeof navigator.mediaDevices.getDisplayMedia !== "function") {
+          throw new Error("L'audio del computer non è supportato su questo browser.");
+        }
+        // getDisplayMedia requires a video constraint — there's no audio-only
+        // variant. We request both then drop the video track so nothing else
+        // pulls it.
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: {
+            autoGainControl: false,
+            noiseSuppression: false,
+            echoCancellation: false,
+          },
+        });
+        acquired.push(systemStream);
+        systemStream.getVideoTracks().forEach((t) => t.stop());
+        if (systemStream.getAudioTracks().length === 0) {
+          throw new Error(
+            "Non hai abilitato la condivisione dell'audio. Riprova e spunta \"Condividi audio\"."
+          );
+        }
+      }
+
+      audioContext = new AudioContext();
       const destination = audioContext.createMediaStreamDestination();
 
       const analyser = audioContext.createAnalyser();
@@ -423,9 +468,25 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       analyser.smoothingTimeConstant = 0.7;
       analyserRef.current = analyser;
 
-      source.connect(gainNode);
-      gainNode.connect(destination);
-      gainNode.connect(analyser);
+      // Per-source gain so one source doesn't drown the other. The 2.5 boost
+      // on the mic matches the previous mic-only path so pure mic recordings
+      // sound the same.
+      if (micStream) {
+        const src = audioContext.createMediaStreamSource(micStream);
+        const gain = audioContext.createGain();
+        gain.gain.value = 2.5;
+        src.connect(gain);
+        gain.connect(destination);
+        gain.connect(analyser);
+      }
+      if (systemStream) {
+        const src = audioContext.createMediaStreamSource(systemStream);
+        const gain = audioContext.createGain();
+        gain.gain.value = 1.0;
+        src.connect(gain);
+        gain.connect(destination);
+        gain.connect(analyser);
+      }
 
       const mediaRecorder = new MediaRecorder(destination.stream);
       chunksRef.current = [];
@@ -434,6 +495,18 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
+      // The browser-level "Stop sharing" pill ends the system audio track. If
+      // we don't react to that the recorder keeps a dead source running.
+      if (systemStream) {
+        systemStream.getAudioTracks()[0]?.addEventListener("ended", () => {
+          if (mediaRecorder.state === "recording") {
+            try { mediaRecorder.stop(); } catch {}
+          }
+        });
+      }
+
+      const streamsForCleanup = [...acquired];
+      const ctxForCleanup = audioContext;
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         // Recording playback is intentionally NOT exposed via `audioURL`:
@@ -443,9 +516,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         // user-uploaded audio only — we still want a clean way to *listen*
         // to a recording, and the transcript itself replaces playback as
         // the canonical artefact of the recording flow.
-        stream.getTracks().forEach((t) => t.stop());
+        streamsForCleanup.forEach((s) => s.getTracks().forEach((t) => t.stop()));
         analyserRef.current = null;
-        audioContext.close();
+        try { ctxForCleanup.close(); } catch {}
         // Send to Whisper for accurate transcription.
         const stamp = new Date()
           .toISOString()
@@ -466,8 +539,25 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
         setRecordTime((prev) => (prev !== elapsed ? elapsed : prev));
       }, 250);
-    } catch {
-      setError("Accesso al microfono negato.");
+    } catch (err) {
+      // Roll back any half-acquired streams / AudioContext on failure (denied
+      // permissions, cancelled share dialog) so the tab's device indicator
+      // doesn't stay lit.
+      acquired.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      try { audioContext?.close(); } catch {}
+      analyserRef.current = null;
+      const denied = err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
+      const msg = err instanceof Error ? err.message : "";
+      if (denied && sources.mic && !sources.system) {
+        setError("Accesso al microfono negato.");
+      } else if (denied && sources.system) {
+        setError("Condivisione audio del computer annullata.");
+      } else if (msg) {
+        setError(msg);
+      } else {
+        setError("Impossibile avviare la registrazione.");
+      }
     }
   }, [transcribeBlob]);
 
